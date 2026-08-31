@@ -3,20 +3,14 @@
 
 EBP intentionally does not register design systems.  This generator keeps a
 renderer extension's schema, target support, stateful rules, and identity in
-one manifest while producing the endpoint vocabulary consumed by Jetpacs.
-
-With no arguments it regenerates the established Glasspane Material 3 files:
-
-    python3 tools/gen-renderer-extension-vocabulary.py
-
-Another extension supplies its manifest and both explicit output paths:
+one manifest while producing Kotlin and Elisp endpoint projections.  The
+extension owner supplies its manifest and both output paths:
 
     python3 tools/gen-renderer-extension-vocabulary.py \
-      renderer-extensions/example-design.json \
-      --kotlin-output companion/renderer/example/src/main/kotlin/\
-com/example/render/ExampleDesignVocabulary.kt \
+      /path/to/example-design.json \
+      --kotlin-output /path/to/ExampleDesignVocabulary.kt \
       --kotlin-package com.example.render \
-      --elisp-output emacs/apps/example-design/example-design-vocabulary.el
+      --elisp-output /path/to/example-design-vocabulary.el
 
 Use ``--check`` in verification to reject stale generated files without
 modifying the worktree.
@@ -33,23 +27,26 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_MANIFEST = ROOT / "renderer-extensions" / "glasspane-material3.json"
-DEFAULT_KOTLIN_OUTPUT = (
-    ROOT
-    / "companion/renderer/material3/src/main/kotlin/com/calebc42/ebp/companion/render"
-    / "GlasspaneMaterial3Vocabulary.kt"
-)
-DEFAULT_ELISP_OUTPUT = (
-    ROOT
-    / "emacs/apps/glasspane-material3/glasspane-material3-vocabulary.el"
-)
-DEFAULT_KOTLIN_PACKAGE = "com.calebc42.ebp.companion.render"
-
 _EXTENSION_ID = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 _TARGET_ID = re.compile(r"[a-z][a-z0-9_-]*\Z")
 _KOTLIN_PACKAGE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\Z"
 )
+
+# Renderer manifests may refine the closed objects in a selection-options
+# array without adding downstream member names to the wire module.  Keep the
+# type vocabulary deliberately scalar: node/action/aggregate shapes still
+# require their owning, purpose-built admission rules.
+_SELECTION_OPTION_MEMBER_TYPES = {
+    "boolean",
+    "finite-number",
+    "integer",
+    "integer-1-6",
+    "non-empty-string",
+    "non-negative-integer",
+    "positive-integer",
+    "string",
+}
 
 
 class ManifestError(ValueError):
@@ -68,6 +65,13 @@ def _display_path(path: Path) -> str:
         return path.resolve().relative_to(ROOT.resolve()).as_posix()
     except ValueError:
         return path.resolve().as_posix()
+
+
+def _source_label(path: Path) -> str:
+    """Return a stable owner-relative label for generated-file headers."""
+    if path.parent.name == "renderer-extensions":
+        return f"renderer-extensions/{path.name}"
+    return _display_path(path)
 
 
 def _string_list(value: Any, where: str, *, allow_empty: bool = True) -> list[str]:
@@ -161,6 +165,14 @@ def load_manifest(path: Path) -> dict[str, Any]:
         manifest.get("at_least_one_non_empty"),
         "manifest.at_least_one_non_empty",
     )
+    selection_options = _mapping(
+        manifest.get("selection_options", {}),
+        "manifest.selection_options",
+    )
+    true_requires_parent = _mapping(
+        manifest.get("true_requires_parent", {}),
+        "manifest.true_requires_parent",
+    )
     for node_type, member in stateful.items():
         if node_type not in known_types:
             raise ManifestError(
@@ -193,6 +205,166 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 f"manifest.at_least_one_non_empty[{node_type!r}] names unknown "
                 f"members: {sorted(unknown)}"
             )
+    selection_rule_required_members = {
+        "options_member",
+        "selection_member",
+        "label_member",
+        "value_member",
+    }
+    selection_rule_optional_members = {
+        "required_option_members",
+        "optional_option_members",
+    }
+    for node_type, value in selection_options.items():
+        if node_type not in known_types:
+            raise ManifestError(
+                f"manifest.selection_options names unknown node {node_type!r}"
+            )
+        rule = _mapping(
+            value,
+            f"manifest.selection_options[{node_type!r}]",
+        )
+        missing = selection_rule_required_members - set(rule)
+        unknown = set(rule) - (
+            selection_rule_required_members | selection_rule_optional_members
+        )
+        if missing or unknown:
+            raise ManifestError(
+                f"manifest.selection_options[{node_type!r}] must contain "
+                f"{sorted(selection_rule_required_members)} and may contain "
+                f"{sorted(selection_rule_optional_members)}"
+            )
+        if any(
+            not isinstance(rule[key], str) or not rule[key]
+            for key in selection_rule_required_members
+        ):
+            raise ManifestError(
+                f"manifest.selection_options[{node_type!r}] members must be "
+                "non-empty strings"
+            )
+        if rule["label_member"] == rule["value_member"]:
+            raise ManifestError(
+                f"manifest.selection_options[{node_type!r}] label_member and "
+                "value_member must differ"
+            )
+        row = schemas[node_type]
+        schema_members = set(row["required"] + row["optional"])
+        for member_key in ("options_member", "selection_member"):
+            member = rule[member_key]
+            if member not in schema_members:
+                raise ManifestError(
+                    f"manifest.selection_options[{node_type!r}].{member_key} "
+                    f"names unknown member {member!r}"
+                )
+        if rule["options_member"] == rule["selection_member"]:
+            raise ManifestError(
+                f"manifest.selection_options[{node_type!r}] options_member and "
+                "selection_member must differ"
+            )
+        if rule["options_member"] not in row["required"]:
+            raise ManifestError(
+                f"manifest.selection_options[{node_type!r}].options_member "
+                "must name a required member"
+            )
+        required_option_members = _mapping(
+            rule.get("required_option_members", {}),
+            f"manifest.selection_options[{node_type!r}].required_option_members",
+        )
+        optional_option_members = _mapping(
+            rule.get("optional_option_members", {}),
+            f"manifest.selection_options[{node_type!r}].optional_option_members",
+        )
+        overlap = set(required_option_members) & set(optional_option_members)
+        if overlap:
+            raise ManifestError(
+                f"manifest.selection_options[{node_type!r}] repeats option "
+                f"members across required and optional: {sorted(overlap)}"
+            )
+        reserved = {rule["label_member"], rule["value_member"]}
+        repeated = reserved & (
+            set(required_option_members) | set(optional_option_members)
+        )
+        if repeated:
+            raise ManifestError(
+                f"manifest.selection_options[{node_type!r}] repeats label/value "
+                f"members in typed option members: {sorted(repeated)}"
+            )
+        for group_name, members in (
+            ("required_option_members", required_option_members),
+            ("optional_option_members", optional_option_members),
+        ):
+            for member, field_type in members.items():
+                if not isinstance(member, str) or not member:
+                    raise ManifestError(
+                        f"manifest.selection_options[{node_type!r}].{group_name} "
+                        "keys must be non-empty strings"
+                    )
+                if (
+                    not isinstance(field_type, str)
+                    or field_type not in _SELECTION_OPTION_MEMBER_TYPES
+                ):
+                    raise ManifestError(
+                        f"manifest.selection_options[{node_type!r}].{group_name}"
+                        f"[{member!r}] has unsupported scalar type {field_type!r}"
+                    )
+    parent_rule_members = {"member", "parent_types"}
+    for node_type, value in true_requires_parent.items():
+        if node_type not in known_types:
+            raise ManifestError(
+                f"manifest.true_requires_parent names unknown node {node_type!r}"
+            )
+        rule = _mapping(
+            value,
+            f"manifest.true_requires_parent[{node_type!r}]",
+        )
+        if set(rule) != parent_rule_members:
+            raise ManifestError(
+                f"manifest.true_requires_parent[{node_type!r}] must contain "
+                f"only {sorted(parent_rule_members)}"
+            )
+        member = rule["member"]
+        if not isinstance(member, str) or not member:
+            raise ManifestError(
+                f"manifest.true_requires_parent[{node_type!r}].member must "
+                "be a non-empty string"
+            )
+        row = schemas[node_type]
+        if member not in row["optional"]:
+            raise ManifestError(
+                f"manifest.true_requires_parent[{node_type!r}].member must "
+                f"name an optional schema member, got {member!r}"
+            )
+        _string_list(
+            rule["parent_types"],
+            f"manifest.true_requires_parent[{node_type!r}].parent_types",
+            allow_empty=False,
+        )
+    lazy_column_sticky_members = _mapping(
+        manifest.get("lazy_column_sticky_members", {}),
+        "manifest.lazy_column_sticky_members",
+    )
+    for node_type, member in lazy_column_sticky_members.items():
+        if node_type not in known_types:
+            raise ManifestError(
+                "manifest.lazy_column_sticky_members names unknown node "
+                f"{node_type!r}"
+            )
+        if not isinstance(member, str) or not member:
+            raise ManifestError(
+                f"manifest.lazy_column_sticky_members[{node_type!r}] must be "
+                "a non-empty member name"
+            )
+        parent_rule = true_requires_parent.get(node_type)
+        if not isinstance(parent_rule, dict) or parent_rule.get("member") != member:
+            raise ManifestError(
+                f"manifest.lazy_column_sticky_members[{node_type!r}] must match "
+                "that node's true_requires_parent member"
+            )
+        if "lazy_column" not in parent_rule.get("parent_types", []):
+            raise ManifestError(
+                f"manifest.lazy_column_sticky_members[{node_type!r}] requires "
+                "lazy_column in true_requires_parent.parent_types"
+            )
     return manifest
 
 
@@ -223,6 +395,12 @@ def _kt_set(values: list[str]) -> str:
     return "setOf(" + ", ".join(_quoted(value) for value in values) + ")"
 
 
+def _kt_string_map(values: dict[str, str]) -> str:
+    return "mapOf(" + ", ".join(
+        f"{_quoted(key)} to {_quoted(value)}" for key, value in values.items()
+    ) + ")"
+
+
 def _el_strings(values: list[str]) -> str:
     return " ".join(_quoted(value) for value in values)
 
@@ -251,13 +429,73 @@ def render_kotlin(
         f'    "{node_type}" to {_kt_set(members)},'
         for node_type, members in manifest["at_least_one_non_empty"].items()
     ]
+    selection_rows = []
+    for node_type, rule in manifest.get("selection_options", {}).items():
+        extras = ""
+        required_option_members = rule.get("required_option_members", {})
+        optional_option_members = rule.get("optional_option_members", {})
+        if required_option_members or optional_option_members:
+            extras = (
+                ", requiredOptionMembers = "
+                f"{_kt_string_map(required_option_members)}, "
+                "optionalOptionMembers = "
+                f"{_kt_string_map(optional_option_members)}"
+            )
+        selection_rows.append(
+            f'    "{node_type}" to SelectionOptionsRule('
+            f'{_quoted(rule["options_member"])}, '
+            f'{_quoted(rule["selection_member"])}, '
+            f'{_quoted(rule["label_member"])}, '
+            f'{_quoted(rule["value_member"])}{extras}),'
+        )
+    parent_rows = [
+        f'    "{node_type}" to TrueRequiresParentRule('
+        f'{_quoted(rule["member"])}, {_kt_set(rule["parent_types"])}),'
+        for node_type, rule in manifest.get("true_requires_parent", {}).items()
+    ]
+    sticky_rows = [
+        f'    "{node_type}" to {_quoted(member)},'
+        for node_type, member in manifest.get(
+            "lazy_column_sticky_members", {}
+        ).items()
+    ]
+    kotlin_imports = ["import com.calebc42.ebp.wire.NodeRow"]
+    if selection_rows:
+        kotlin_imports.append(
+            "import com.calebc42.ebp.wire.SelectionOptionsRule"
+        )
+    if parent_rows:
+        kotlin_imports.append(
+            "import com.calebc42.ebp.wire.TrueRequiresParentRule"
+        )
+    selection_projection = (
+        f'''\n\nval {constant}_SELECTION_OPTIONS: Map<String, SelectionOptionsRule> = mapOf(
+{chr(10).join(selection_rows)}
+)\n'''
+        if selection_rows
+        else "\n"
+    )
+    parent_projection = (
+        f'''\nval {constant}_TRUE_REQUIRES_PARENT: Map<String, TrueRequiresParentRule> = mapOf(
+{chr(10).join(parent_rows)}
+)\n'''
+        if parent_rows
+        else ""
+    )
+    sticky_projection = (
+        f'''\nval {constant}_LAZY_COLUMN_STICKY_MEMBERS: Map<String, String> = mapOf(
+{chr(10).join(sticky_rows)}
+)\n'''
+        if sticky_rows
+        else ""
+    )
     return f'''// SPDX-License-Identifier: GPL-3.0-or-later
 // GENERATED from {source_label} (format
 // {manifest["format"]}) by tools/gen-renderer-extension-vocabulary.py.
 // DO NOT EDIT: {pascal}VocabularyTest pins this projection.
 package {package_name}
 
-import com.calebc42.ebp.wire.NodeRow
+{chr(10).join(kotlin_imports)}
 
 const val {constant}_EXTENSION = "{manifest["extension"]}"
 
@@ -275,8 +513,7 @@ val {constant}_STATEFUL_WHEN_PRESENT: Map<String, String> = mapOf(
 
 val {constant}_AT_LEAST_ONE_NON_EMPTY: Map<String, Set<String>> = mapOf(
 {chr(10).join(non_empty_rows)}
-)
-'''
+){selection_projection}{parent_projection}{sticky_projection}'''
 
 
 def render_elisp(
@@ -321,7 +558,7 @@ def render_elisp(
 (defconst {prefix}-target-node-types
   '(
 {chr(10).join(targets)})
-  "{human_prefix} node types supported by each Jetpacs target.")
+  "{human_prefix} node types supported by each renderer target.")
 
 (provide '{prefix}-vocabulary)
 ;;; {output_name} ends here
@@ -345,22 +582,22 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "manifest",
-        nargs="?",
-        default=DEFAULT_MANIFEST,
-        help="renderer-extension manifest (defaults to Glasspane Material 3)",
+        help="renderer-extension manifest",
     )
     parser.add_argument(
         "--kotlin-output",
-        help="generated Kotlin file; required for a non-default manifest",
+        required=True,
+        help="generated Kotlin file",
     )
     parser.add_argument(
         "--kotlin-package",
-        default=DEFAULT_KOTLIN_PACKAGE,
-        help=f"Kotlin package (default: {DEFAULT_KOTLIN_PACKAGE})",
+        required=True,
+        help="generated Kotlin package",
     )
     parser.add_argument(
         "--elisp-output",
-        help="generated Elisp file; required for a non-default manifest",
+        required=True,
+        help="generated Elisp file",
     )
     parser.add_argument(
         "--check",
@@ -374,29 +611,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     manifest_path = _repo_path(args.manifest)
-    is_default = manifest_path.resolve() == DEFAULT_MANIFEST.resolve()
-    if not is_default and not args.kotlin_output:
-        parser.error("--kotlin-output is required for a non-default manifest")
-    if not is_default and not args.elisp_output:
-        parser.error("--elisp-output is required for a non-default manifest")
     if not _KOTLIN_PACKAGE.fullmatch(args.kotlin_package):
         parser.error("--kotlin-package is not a valid Kotlin package")
 
-    kotlin_output = (
-        _repo_path(args.kotlin_output)
-        if args.kotlin_output
-        else DEFAULT_KOTLIN_OUTPUT
-    )
-    elisp_output = (
-        _repo_path(args.elisp_output) if args.elisp_output else DEFAULT_ELISP_OUTPUT
-    )
+    kotlin_output = _repo_path(args.kotlin_output)
+    elisp_output = _repo_path(args.elisp_output)
     try:
         manifest = load_manifest(manifest_path)
     except ManifestError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    source_label = _display_path(manifest_path)
+    source_label = _source_label(manifest_path)
     kotlin = render_kotlin(manifest, source_label, args.kotlin_package)
     elisp = render_elisp(manifest, source_label, elisp_output.name)
     kotlin_ok = _write_or_check(kotlin_output, kotlin, args.check)

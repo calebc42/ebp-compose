@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.calebc42.jetpacs.renderer.compose"
+    namespace = "com.calebc42.ebp.renderer.compose"
     compileSdk = 37
     defaultConfig {
         minSdk = 36

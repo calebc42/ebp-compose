@@ -5,7 +5,7 @@ plugins {
 android {
     namespace = "com.calebc42.ebp.renderer.model"
     compileSdk = 37
-    defaultConfig { minSdk = 36 }
+    defaultConfig { minSdk = 34 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21

@@ -7,7 +7,7 @@ android {
     namespace = "com.calebc42.ebp.renderer.compose"
     compileSdk = 37
     defaultConfig {
-        minSdk = 36
+        minSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }

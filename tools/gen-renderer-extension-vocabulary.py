@@ -19,7 +19,9 @@ modifying the worktree.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -32,6 +34,10 @@ _TARGET_ID = re.compile(r"[a-z][a-z0-9_-]*\Z")
 _KOTLIN_PACKAGE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\Z"
 )
+_SCHEMA_NAME = re.compile(r"[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*\Z")
+_MAX_FORMAT_2_BYTES = 256 * 1024
+_MAX_SCHEMA_COLLECTION = 10_000
+_MAX_SCHEMA_STRING = 1_048_576
 
 # Renderer manifests may refine the closed objects in a selection-options
 # array without adding downstream member names to the wire module.  Keep the
@@ -92,18 +98,318 @@ def _mapping(value: Any, where: str) -> dict[str, Any]:
     return value
 
 
+def _closed_mapping(
+    value: Any,
+    where: str,
+    required: set[str],
+    optional: set[str] | None = None,
+) -> dict[str, Any]:
+    """Return one closed object or report its exact missing/unknown members."""
+    row = _mapping(value, where)
+    allowed = required | (optional or set())
+    missing = sorted(required - set(row))
+    unknown = sorted(set(row) - allowed)
+    if missing:
+        raise ManifestError(f"{where} is missing required members: {missing}")
+    if unknown:
+        raise ManifestError(f"{where} is closed; unknown members: {unknown}")
+    return row
+
+
+def _bounded_integer(value: Any, where: str, *, maximum: int) -> int:
+    if type(value) is not int or value < 0 or value > maximum:
+        raise ManifestError(
+            f"{where} must be an integer in 0..{maximum}"
+        )
+    return value
+
+
+def _collection_bounds(
+    row: dict[str, Any],
+    where: str,
+    minimum_member: str,
+    maximum_member: str,
+) -> tuple[int, int]:
+    minimum = _bounded_integer(
+        row[minimum_member],
+        f"{where}.{minimum_member}",
+        maximum=_MAX_SCHEMA_COLLECTION,
+    )
+    maximum = _bounded_integer(
+        row[maximum_member],
+        f"{where}.{maximum_member}",
+        maximum=_MAX_SCHEMA_COLLECTION,
+    )
+    if minimum > maximum:
+        raise ManifestError(
+            f"{where}.{minimum_member} must not exceed {maximum_member}"
+        )
+    return minimum, maximum
+
+
+def _node_member_names(row: dict[str, Any], group: str) -> list[str]:
+    """Return format-1 list or format-2 typed-map member names."""
+    members = row[group]
+    return list(members if isinstance(members, dict) else members)
+
+
+def _resolve_format_2_schemas(
+    manifest: dict[str, Any],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Validate and fully resolve the finite format-2 schema graph."""
+    definitions = _mapping(manifest["definitions"], "manifest.definitions")
+    for name in definitions:
+        if not isinstance(name, str) or not _SCHEMA_NAME.fullmatch(name):
+            raise ManifestError(
+                f"manifest.definitions has invalid schema name {name!r}"
+            )
+
+    cache: dict[str, dict[str, Any]] = {}
+
+    def resolve_definition(name: str, where: str, stack: tuple[str, ...]) -> dict[str, Any]:
+        if name not in definitions:
+            raise ManifestError(f"{where} has unresolved reference {name!r}")
+        if name in stack:
+            cycle = " -> ".join((*stack, name))
+            raise ManifestError(f"{where} has cyclic reference: {cycle}")
+        if name not in cache:
+            cache[name] = resolve(
+                definitions[name],
+                f"manifest.definitions[{name!r}]",
+                (*stack, name),
+            )
+        return cache[name]
+
+    def member_map(
+        value: Any,
+        where: str,
+        stack: tuple[str, ...],
+    ) -> dict[str, dict[str, Any]]:
+        members = _mapping(value, where)
+        normalized: dict[str, dict[str, Any]] = {}
+        for member in sorted(members):
+            if not isinstance(member, str) or not member:
+                raise ManifestError(f"{where} keys must be non-empty strings")
+            normalized[member] = resolve(
+                members[member], f"{where}[{member!r}]", stack
+            )
+        return normalized
+
+    def resolve(
+        value: Any,
+        where: str,
+        stack: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        row = _mapping(value, where)
+        schema_type = row.get("type")
+        if not isinstance(schema_type, str):
+            raise ManifestError(f"{where}.type must be a string")
+
+        if schema_type == "boolean":
+            _closed_mapping(row, where, {"type"})
+            return {"type": schema_type}
+        if schema_type in {"integer", "number"}:
+            row = _closed_mapping(
+                row, where, {"type", "minimum", "maximum"}
+            )
+            minimum = row["minimum"]
+            maximum = row["maximum"]
+            if schema_type == "integer":
+                if type(minimum) is not int or type(maximum) is not int:
+                    raise ManifestError(
+                        f"{where} integer bounds must be integers"
+                    )
+            elif (
+                type(minimum) not in {int, float}
+                or type(maximum) not in {int, float}
+                or not math.isfinite(float(minimum))
+                or not math.isfinite(float(maximum))
+            ):
+                raise ManifestError(f"{where} number bounds must be finite")
+            if minimum > maximum:
+                raise ManifestError(
+                    f"{where}.minimum must not exceed maximum"
+                )
+            return {
+                "type": schema_type,
+                "minimum": minimum,
+                "maximum": maximum,
+            }
+        if schema_type == "string":
+            row = _closed_mapping(
+                row, where, {"type", "min_length", "max_length"}
+            )
+            minimum = _bounded_integer(
+                row["min_length"],
+                f"{where}.min_length",
+                maximum=_MAX_SCHEMA_STRING,
+            )
+            maximum = _bounded_integer(
+                row["max_length"],
+                f"{where}.max_length",
+                maximum=_MAX_SCHEMA_STRING,
+            )
+            if minimum > maximum:
+                raise ManifestError(
+                    f"{where}.min_length must not exceed max_length"
+                )
+            return {
+                "type": schema_type,
+                "min_length": minimum,
+                "max_length": maximum,
+            }
+        if schema_type == "enum":
+            row = _closed_mapping(row, where, {"type", "values"})
+            values = _string_list(
+                row["values"], f"{where}.values", allow_empty=False
+            )
+            if len(values) > 256:
+                raise ManifestError(f"{where}.values exceeds 256 members")
+            return {"type": schema_type, "values": sorted(values)}
+        if schema_type == "object":
+            row = _closed_mapping(
+                row, where, {"type", "required", "optional"}
+            )
+            required = member_map(row["required"], f"{where}.required", stack)
+            optional = member_map(row["optional"], f"{where}.optional", stack)
+            overlap = set(required) & set(optional)
+            if overlap:
+                raise ManifestError(
+                    f"{where} repeats members across required and optional: "
+                    f"{sorted(overlap)}"
+                )
+            return {
+                "type": schema_type,
+                "required": required,
+                "optional": optional,
+            }
+        if schema_type == "array":
+            row = _closed_mapping(
+                row,
+                where,
+                {"type", "items", "min_items", "max_items"},
+            )
+            minimum, maximum = _collection_bounds(
+                row, where, "min_items", "max_items"
+            )
+            return {
+                "type": schema_type,
+                "items": resolve(row["items"], f"{where}.items", stack),
+                "min_items": minimum,
+                "max_items": maximum,
+            }
+        if schema_type == "identifier-map":
+            row = _closed_mapping(
+                row,
+                where,
+                {"type", "values", "min_entries", "max_entries"},
+            )
+            minimum, maximum = _collection_bounds(
+                row, where, "min_entries", "max_entries"
+            )
+            return {
+                "type": schema_type,
+                "values": resolve(row["values"], f"{where}.values", stack),
+                "min_entries": minimum,
+                "max_entries": maximum,
+            }
+        if schema_type == "ref":
+            row = _closed_mapping(row, where, {"type", "ref"})
+            name = row["ref"]
+            if not isinstance(name, str):
+                raise ManifestError(f"{where}.ref must be a string")
+            return resolve_definition(name, f"{where}.ref", stack)
+        if schema_type == "node":
+            _closed_mapping(row, where, {"type"})
+            return {"type": schema_type}
+        if schema_type == "node-array":
+            row = _closed_mapping(
+                row, where, {"type", "min_items", "max_items"}
+            )
+            minimum, maximum = _collection_bounds(
+                row, where, "min_items", "max_items"
+            )
+            return {
+                "type": schema_type,
+                "min_items": minimum,
+                "max_items": maximum,
+            }
+        if schema_type == "action":
+            _closed_mapping(row, where, {"type"})
+            return {"type": schema_type}
+        raise ManifestError(f"{where}.type has unsupported value {schema_type!r}")
+
+    # Validate even unused definitions: dead, malformed schema is still drift
+    # in the owner authority and must not be silently projected.
+    for definition_name in sorted(definitions):
+        resolve_definition(
+            definition_name,
+            f"manifest.definitions[{definition_name!r}]",
+            (),
+        )
+
+    resolved_nodes: dict[str, dict[str, dict[str, Any]]] = {}
+    for node_type in manifest["node_types"]:
+        row_where = f"manifest.node_schema[{node_type!r}]"
+        row = _closed_mapping(
+            manifest["node_schema"][node_type],
+            row_where,
+            {"required", "optional"},
+        )
+        required = member_map(row["required"], f"{row_where}.required", ())
+        optional = member_map(row["optional"], f"{row_where}.optional", ())
+        overlap = set(required) & set(optional)
+        if overlap:
+            raise ManifestError(
+                f"{row_where} repeats members across required and optional: "
+                f"{sorted(overlap)}"
+            )
+        if "t" in required or "t" in optional:
+            raise ManifestError(f"{row_where} must not redeclare discriminator t")
+        resolved_nodes[node_type] = {
+            "required": required,
+            "optional": optional,
+        }
+    return resolved_nodes
+
+
 def load_manifest(path: Path) -> dict[str, Any]:
     """Read and validate the manifest fields this projection consumes."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        source = path.read_text(encoding="utf-8")
+        raw = json.loads(source)
     except OSError as error:
         raise ManifestError(f"cannot read {path}: {error}") from error
     except json.JSONDecodeError as error:
         raise ManifestError(f"invalid JSON in {path}: {error}") from error
 
     manifest = _mapping(raw, "manifest")
-    if type(manifest.get("format")) is not int or manifest["format"] < 1:
-        raise ManifestError("manifest.format must be a positive integer")
+    if manifest.get("format") not in {1, 2}:
+        raise ManifestError("manifest.format must be 1 or 2")
+    format_version = manifest["format"]
+    if format_version == 2:
+        if len(source.encode("utf-8")) > _MAX_FORMAT_2_BYTES:
+            raise ManifestError("format-2 manifest exceeds 256 KiB")
+        _closed_mapping(
+            manifest,
+            "manifest",
+            {
+                "format",
+                "extension",
+                "description",
+                "node_types",
+                "targets",
+                "definitions",
+                "node_schema",
+                "stateful_when_present",
+                "at_least_one_non_empty",
+            },
+            {
+                "selection_options",
+                "true_requires_parent",
+                "lazy_column_sticky_members",
+            },
+        )
 
     extension = manifest.get("extension")
     if not isinstance(extension, str) or not _EXTENSION_ID.fullmatch(extension):
@@ -130,18 +436,35 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 f"manifest.node_schema[{node_type!r}] must contain only "
                 "required and optional"
             )
-        required = _string_list(
-            row["required"], f"manifest.node_schema[{node_type!r}].required"
-        )
-        optional = _string_list(
-            row["optional"], f"manifest.node_schema[{node_type!r}].optional"
-        )
+        if format_version == 1:
+            required = _string_list(
+                row["required"], f"manifest.node_schema[{node_type!r}].required"
+            )
+            optional = _string_list(
+                row["optional"], f"manifest.node_schema[{node_type!r}].optional"
+            )
+        else:
+            required = list(
+                _mapping(
+                    row["required"],
+                    f"manifest.node_schema[{node_type!r}].required",
+                )
+            )
+            optional = list(
+                _mapping(
+                    row["optional"],
+                    f"manifest.node_schema[{node_type!r}].optional",
+                )
+            )
         overlap = set(required) & set(optional)
         if overlap:
             raise ManifestError(
                 f"manifest.node_schema[{node_type!r}] repeats members across "
                 f"required and optional: {sorted(overlap)}"
             )
+
+    if format_version == 2:
+        manifest["_resolved_node_schema"] = _resolve_format_2_schemas(manifest)
 
     targets = _mapping(manifest.get("targets"), "manifest.targets")
     if not targets:
@@ -183,7 +506,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 f"manifest.stateful_when_present[{node_type!r}] must be a member"
             )
         row = schemas[node_type]
-        if member not in row["required"] + row["optional"]:
+        if member not in (
+            _node_member_names(row, "required") +
+            _node_member_names(row, "optional")
+        ):
             raise ManifestError(
                 f"manifest.stateful_when_present[{node_type!r}] names unknown "
                 f"member {member!r}"
@@ -199,7 +525,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
             allow_empty=False,
         )
         row = schemas[node_type]
-        unknown = set(members) - set(row["required"] + row["optional"])
+        unknown = set(members) - set(
+            _node_member_names(row, "required") +
+            _node_member_names(row, "optional")
+        )
         if unknown:
             raise ManifestError(
                 f"manifest.at_least_one_non_empty[{node_type!r}] names unknown "
@@ -248,7 +577,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 "value_member must differ"
             )
         row = schemas[node_type]
-        schema_members = set(row["required"] + row["optional"])
+        schema_members = set(
+            _node_member_names(row, "required") +
+            _node_member_names(row, "optional")
+        )
         for member_key in ("options_member", "selection_member"):
             member = rule[member_key]
             if member not in schema_members:
@@ -261,7 +593,7 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 f"manifest.selection_options[{node_type!r}] options_member and "
                 "selection_member must differ"
             )
-        if rule["options_member"] not in row["required"]:
+        if rule["options_member"] not in _node_member_names(row, "required"):
             raise ManifestError(
                 f"manifest.selection_options[{node_type!r}].options_member "
                 "must name a required member"
@@ -329,7 +661,7 @@ def load_manifest(path: Path) -> dict[str, Any]:
                 "be a non-empty string"
             )
         row = schemas[node_type]
-        if member not in row["optional"]:
+        if member not in _node_member_names(row, "optional"):
             raise ManifestError(
                 f"manifest.true_requires_parent[{node_type!r}].member must "
                 f"name an optional schema member, got {member!r}"
@@ -405,6 +737,139 @@ def _el_strings(values: list[str]) -> str:
     return " ".join(_quoted(value) for value in values)
 
 
+def _canonical_schema_digest(manifest: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        manifest["_resolved_node_schema"],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _kt_double(value: int | float) -> str:
+    rendered = repr(float(value))
+    return rendered.replace("e+", "e")
+
+
+def _kt_schema_map(values: dict[str, dict[str, Any]]) -> str:
+    return "mapOf(" + ", ".join(
+        f"{_quoted(member)} to {_kt_value_schema(schema)}"
+        for member, schema in values.items()
+    ) + ")"
+
+
+def _kt_value_schema(schema: dict[str, Any]) -> str:
+    schema_type = schema["type"]
+    prefix = "ExtensionValueSchema."
+    if schema_type == "boolean":
+        return prefix + "BooleanValue"
+    if schema_type == "integer":
+        return (
+            prefix + "IntegerValue(" +
+            f'{schema["minimum"]}L, {schema["maximum"]}L)'
+        )
+    if schema_type == "number":
+        return (
+            prefix + "NumberValue(" +
+            f'{_kt_double(schema["minimum"])}, '
+            f'{_kt_double(schema["maximum"])})'
+        )
+    if schema_type == "string":
+        return (
+            prefix + "StringValue(" +
+            f'{schema["min_length"]}, {schema["max_length"]})'
+        )
+    if schema_type == "enum":
+        return prefix + "EnumValue(" + _kt_set(schema["values"]) + ")"
+    if schema_type == "object":
+        return (
+            prefix + "ObjectValue(" +
+            f'{_kt_schema_map(schema["required"])}, '
+            f'{_kt_schema_map(schema["optional"])})'
+        )
+    if schema_type == "array":
+        return (
+            prefix + "ArrayValue(" +
+            f'{_kt_value_schema(schema["items"])}, '
+            f'{schema["min_items"]}, {schema["max_items"]})'
+        )
+    if schema_type == "identifier-map":
+        return (
+            prefix + "IdentifierMapValue(" +
+            f'{_kt_value_schema(schema["values"])}, '
+            f'{schema["min_entries"]}, {schema["max_entries"]})'
+        )
+    if schema_type == "node":
+        return prefix + "NodeValue"
+    if schema_type == "node-array":
+        return (
+            prefix + "NodeArrayValue(" +
+            f'{schema["min_items"]}, {schema["max_items"]})'
+        )
+    if schema_type == "action":
+        return prefix + "ActionDescriptorValue"
+    raise AssertionError(f"unprojected schema type {schema_type}")
+
+
+def _el_schema_map(values: dict[str, dict[str, Any]]) -> str:
+    if not values:
+        return "nil"
+    return "(" + " ".join(
+        f'({_quoted(member)} . {_el_value_schema(schema)})'
+        for member, schema in values.items()
+    ) + ")"
+
+
+def _el_value_schema(schema: dict[str, Any]) -> str:
+    schema_type = schema["type"]
+    if schema_type == "boolean":
+        return "(:type boolean)"
+    if schema_type in {"integer", "number"}:
+        return (
+            f'(:type {schema_type} :minimum {schema["minimum"]} '
+            f':maximum {schema["maximum"]})'
+        )
+    if schema_type == "string":
+        return (
+            f'(:type string :min-length {schema["min_length"]} '
+            f':max-length {schema["max_length"]})'
+        )
+    if schema_type == "enum":
+        return f'(:type enum :values ({_el_strings(schema["values"])}))'
+    if schema_type == "object":
+        return (
+            "(:type object " +
+            f':required {_el_schema_map(schema["required"])} '
+            f':optional {_el_schema_map(schema["optional"])})'
+        )
+    if schema_type == "array":
+        return (
+            "(:type array " +
+            f':items {_el_value_schema(schema["items"])} '
+            f':min-items {schema["min_items"]} '
+            f':max-items {schema["max_items"]})'
+        )
+    if schema_type == "identifier-map":
+        return (
+            "(:type identifier-map " +
+            f':values {_el_value_schema(schema["values"])} '
+            f':min-entries {schema["min_entries"]} '
+            f':max-entries {schema["max_entries"]})'
+        )
+    if schema_type == "node":
+        return "(:type node)"
+    if schema_type == "node-array":
+        return (
+            "(:type node-array " +
+            f':min-items {schema["min_items"]} '
+            f':max-items {schema["max_items"]})'
+        )
+    if schema_type == "action":
+        return "(:type action)"
+    raise AssertionError(f"unprojected schema type {schema_type}")
+
+
 def render_kotlin(
     manifest: dict[str, Any], source_label: str, package_name: str
 ) -> str:
@@ -413,9 +878,11 @@ def render_kotlin(
     schema_rows = []
     for node_type in manifest["node_types"]:
         row = manifest["node_schema"][node_type]
+        required = _node_member_names(row, "required")
+        optional = _node_member_names(row, "optional")
         schema_rows.append(
-            f'    "{node_type}" to NodeRow({_kt_set(row["required"])}, '
-            f'{_kt_set(row["optional"])}),'
+            f'    "{node_type}" to NodeRow({_kt_set(required)}, '
+            f'{_kt_set(optional)}),'
         )
     target_rows = [
         f'    "{target}" to {_kt_set(node_types)},'
@@ -460,6 +927,28 @@ def render_kotlin(
         ).items()
     ]
     kotlin_imports = ["import com.calebc42.ebp.wire.NodeRow"]
+    typed_projection = ""
+    if manifest["format"] == 2:
+        kotlin_imports.extend([
+            "import com.calebc42.ebp.wire.ExtensionNodeSchema",
+            "import com.calebc42.ebp.wire.ExtensionValueSchema",
+        ])
+        typed_rows = []
+        for node_type in manifest["node_types"]:
+            row = manifest["_resolved_node_schema"][node_type]
+            typed_rows.append(
+                f'    {_quoted(node_type)} to ExtensionNodeSchema('
+                f'{_kt_schema_map(row["required"])}, '
+                f'{_kt_schema_map(row["optional"])}),'
+            )
+        digest = _canonical_schema_digest(manifest)
+        typed_projection = f'''
+val {constant}_TYPED_NODE_SCHEMA: Map<String, ExtensionNodeSchema> = mapOf(
+{chr(10).join(typed_rows)}
+)
+
+const val {constant}_SCHEMA_SHA256 = "{digest}"
+'''
     if selection_rows:
         kotlin_imports.append(
             "import com.calebc42.ebp.wire.SelectionOptionsRule"
@@ -513,7 +1002,7 @@ val {constant}_STATEFUL_WHEN_PRESENT: Map<String, String> = mapOf(
 
 val {constant}_AT_LEAST_ONE_NON_EMPTY: Map<String, Set<String>> = mapOf(
 {chr(10).join(non_empty_rows)}
-){selection_projection}{parent_projection}{sticky_projection}'''
+){selection_projection}{parent_projection}{sticky_projection}{typed_projection}'''
 
 
 def render_elisp(
@@ -524,9 +1013,11 @@ def render_elisp(
     schema_rows = []
     for node_type in manifest["node_types"]:
         row = manifest["node_schema"][node_type]
+        required = _node_member_names(row, "required")
+        optional = _node_member_names(row, "optional")
         schema_rows.append(
-            f'    ("{node_type}" ({_el_strings(sorted(row["required"]))}) '
-            f'({_el_strings(sorted(row["optional"]))}))'
+            f'    ("{node_type}" ({_el_strings(sorted(required))}) '
+            f'({_el_strings(sorted(optional))}))'
         )
     targets = [
         f'    ({target} . ({_el_strings(node_types)}))'
@@ -534,6 +1025,25 @@ def render_elisp(
     ]
     design_family = human_prefix.removeprefix(f"{authority} ")
     possessive = f"{authority}'" if authority.endswith("s") else f"{authority}'s"
+    typed_projection = ""
+    if manifest["format"] == 2:
+        typed_rows = []
+        for node_type in manifest["node_types"]:
+            row = manifest["_resolved_node_schema"][node_type]
+            typed_rows.append(
+                f'    ({_quoted(node_type)} . '
+                f'(:required {_el_schema_map(row["required"])} '
+                f':optional {_el_schema_map(row["optional"])}))'
+            )
+        digest = _canonical_schema_digest(manifest)
+        typed_projection = f'''
+(defconst {prefix}-typed-node-schema
+  '(\n{chr(10).join(typed_rows)})
+  "{human_prefix} closed typed node schemas.")
+
+(defconst {prefix}-schema-sha256 "{digest}"
+  "SHA-256 of the canonical resolved typed schema projection.")
+'''
     return f''';;; {output_name} --- generated renderer vocabulary -*- lexical-binding: t; -*-
 
 ;; SPDX-License-Identifier: GPL-3.0-or-later
@@ -559,7 +1069,7 @@ def render_elisp(
   '(
 {chr(10).join(targets)})
   "{human_prefix} node types supported by each renderer target.")
-
+{typed_projection}
 (provide '{prefix}-vocabulary)
 ;;; {output_name} ends here
 '''

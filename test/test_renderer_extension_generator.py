@@ -2,6 +2,7 @@
 """Hermetic CLI tests for the renderer-extension vocabulary generator."""
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -56,6 +57,71 @@ def example_manifest() -> dict:
         "lazy_column_sticky_members": {
             "example.choice": "pinned",
         },
+    }
+
+
+def format_two_manifest() -> dict:
+    """Return a format-2 owner manifest exercising the closed type algebra."""
+    return {
+        "format": 2,
+        "extension": "example.typed",
+        "description": "Closed typed renderer extension fixture.",
+        "node_types": ["example.typed"],
+        "targets": {"app": ["example.typed"], "dialog": []},
+        "definitions": {
+            "short-string": {
+                "type": "string",
+                "min_length": 1,
+                "max_length": 32,
+            },
+            "label": {"type": "ref", "ref": "short-string"},
+            "option": {
+                "type": "object",
+                "required": {
+                    "label": {"type": "ref", "ref": "label"},
+                    "value": {"type": "ref", "ref": "short-string"},
+                },
+                "optional": {"enabled": {"type": "boolean"}},
+            },
+        },
+        "node_schema": {
+            "example.typed": {
+                "required": {
+                    "flag": {"type": "boolean"},
+                    "count": {"type": "integer", "minimum": 0, "maximum": 8},
+                    "ratio": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "label": {"type": "ref", "ref": "label"},
+                    "mode": {"type": "enum", "values": ["quiet", "loud"]},
+                    "settings": {
+                        "type": "object",
+                        "required": {"name": {"type": "ref", "ref": "label"}},
+                        "optional": {"active": {"type": "boolean"}},
+                    },
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "ref", "ref": "option"},
+                        "min_items": 1,
+                        "max_items": 16,
+                    },
+                    "tokens": {
+                        "type": "identifier-map",
+                        "values": {"type": "ref", "ref": "short-string"},
+                        "min_entries": 0,
+                        "max_entries": 64,
+                    },
+                    "content": {"type": "node"},
+                    "children": {
+                        "type": "node-array",
+                        "min_items": 0,
+                        "max_items": 128,
+                    },
+                    "on_tap": {"type": "action"},
+                },
+                "optional": {},
+            },
+        },
+        "stateful_when_present": {},
+        "at_least_one_non_empty": {},
     }
 
 
@@ -134,6 +200,186 @@ class RendererExtensionGeneratorTest(unittest.TestCase):
             stale = self.run_generator(*arguments, "--check")
             self.assertEqual(1, stale.returncode)
             self.assertIn("stale generated file", stale.stderr)
+
+    def test_projects_equivalent_closed_format_two_schemas(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            manifest = temp / "example-typed.json"
+            kotlin = temp / "ExampleTypedVocabulary.kt"
+            elisp = temp / "example-typed-vocabulary.el"
+            manifest.write_text(
+                json.dumps(format_two_manifest()), encoding="utf-8"
+            )
+            arguments = (
+                manifest,
+                "--kotlin-output",
+                kotlin,
+                "--kotlin-package",
+                "com.example.typed",
+                "--elisp-output",
+                elisp,
+            )
+            generated = self.run_generator(*arguments)
+            self.assertEqual(0, generated.returncode, generated.stderr)
+
+            kotlin_text = kotlin.read_text(encoding="utf-8")
+            elisp_text = elisp.read_text(encoding="utf-8")
+            for spelling in (
+                "BooleanValue",
+                "IntegerValue",
+                "NumberValue",
+                "StringValue",
+                "EnumValue",
+                "ObjectValue",
+                "ArrayValue",
+                "IdentifierMapValue",
+                "NodeValue",
+                "NodeArrayValue",
+                "ActionDescriptorValue",
+            ):
+                self.assertIn(spelling, kotlin_text)
+            for spelling in (
+                ":type boolean",
+                ":type integer",
+                ":type number",
+                ":type string",
+                ":type enum",
+                ":type object",
+                ":type array",
+                ":type identifier-map",
+                ":type node",
+                ":type node-array",
+                ":type action",
+            ):
+                self.assertIn(spelling, elisp_text)
+
+            kotlin_digest = re.search(
+                r'SCHEMA_SHA256 = "([0-9a-f]{64})"', kotlin_text
+            )
+            elisp_digest = re.search(
+                r'-schema-sha256 "([0-9a-f]{64})"', elisp_text
+            )
+            self.assertIsNotNone(kotlin_digest)
+            self.assertIsNotNone(elisp_digest)
+            self.assertEqual(kotlin_digest.group(1), elisp_digest.group(1))
+            checked = self.run_generator(*arguments, "--check")
+            self.assertEqual(0, checked.returncode, checked.stderr)
+
+    def assert_format_two_error(
+        self,
+        mutate,
+        expected: str,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            authored = format_two_manifest()
+            mutate(authored)
+            manifest = temp / "invalid.json"
+            manifest.write_text(json.dumps(authored), encoding="utf-8")
+            result = self.run_generator(
+                manifest,
+                "--kotlin-output",
+                temp / "Invalid.kt",
+                "--kotlin-package",
+                "com.example.invalid",
+                "--elisp-output",
+                temp / "invalid.el",
+            )
+            self.assertEqual(2, result.returncode)
+            self.assertIn(expected, result.stderr)
+
+    def test_format_two_rejects_unresolved_and_cyclic_references(self) -> None:
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            .__setitem__("label", {"type": "ref", "ref": "missing"}),
+            "manifest.node_schema['example.typed'].required['label'].ref "
+            "has unresolved reference 'missing'",
+        )
+
+        def cycle(value: dict) -> None:
+            value["definitions"]["cycle-a"] = {
+                "type": "ref",
+                "ref": "cycle-b",
+            }
+            value["definitions"]["cycle-b"] = {
+                "type": "ref",
+                "ref": "cycle-a",
+            }
+
+        self.assert_format_two_error(cycle, "has cyclic reference: cycle-a -> cycle-b -> cycle-a")
+
+    def test_format_two_requires_all_collection_bounds(self) -> None:
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            ["options"].pop("max_items"),
+            "manifest.node_schema['example.typed'].required['options'] "
+            "is missing required members: ['max_items']",
+        )
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            ["tokens"].pop("min_entries"),
+            "manifest.node_schema['example.typed'].required['tokens'] "
+            "is missing required members: ['min_entries']",
+        )
+
+    def test_format_two_rejects_closed_object_violations_and_overlaps(self) -> None:
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            ["flag"].__setitem__("nullable", True),
+            "manifest.node_schema['example.typed'].required['flag'] is closed; "
+            "unknown members: ['nullable']",
+        )
+
+        def overlap(value: dict) -> None:
+            obj = value["node_schema"]["example.typed"]["required"]["settings"]
+            obj["optional"]["name"] = {"type": "boolean"}
+
+        self.assert_format_two_error(
+            overlap,
+            "manifest.node_schema['example.typed'].required['settings'] "
+            "repeats members across required and optional: ['name']",
+        )
+        self.assert_format_two_error(
+            lambda value: value.__setitem__("unexpected", True),
+            "manifest is closed; unknown members: ['unexpected']",
+        )
+
+    def test_format_two_rejects_invalid_scalar_and_collection_limits(self) -> None:
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            ["count"].__setitem__("minimum", 9),
+            "manifest.node_schema['example.typed'].required['count'].minimum "
+            "must not exceed maximum",
+        )
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            ["label"].__setitem__("type", "string"),
+            "manifest.node_schema['example.typed'].required['label'] is missing "
+            "required members: ['max_length', 'min_length']",
+        )
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            ["children"].__setitem__("max_items", 10_001),
+            "manifest.node_schema['example.typed'].required['children'].max_items "
+            "must be an integer in 0..10000",
+        )
+
+    def test_format_two_rejects_node_member_overlap_and_unsupported_types(self) -> None:
+        def overlap(value: dict) -> None:
+            node = value["node_schema"]["example.typed"]
+            node["optional"]["flag"] = {"type": "boolean"}
+
+        self.assert_format_two_error(
+            overlap,
+            "manifest.node_schema['example.typed'] repeats members across "
+            "required and optional: ['flag']",
+        )
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["required"]
+            ["flag"].__setitem__("type", "anything"),
+            "manifest.node_schema['example.typed'].required['flag'].type has "
+            "unsupported value 'anything'",
+        )
 
     def test_manifest_requires_explicit_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

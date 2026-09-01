@@ -196,12 +196,20 @@ class SemanticsProjectionTest {
                 put("on_trigger", swipeDescriptor)
             })
             put("swipe_start", buildJsonObject {
-                put("label", "Archive")
-                put("on_trigger", descriptor("card.archive"))
+                put("actions", buildJsonArray {
+                    add(buildJsonObject {
+                        put("label", "Archive")
+                        put("on_trigger", descriptor("card.archive"))
+                    })
+                    add(buildJsonObject {
+                        put("label", "Snooze")
+                        put("on_trigger", descriptor("card.snooze"))
+                    })
+                })
             })
         })
 
-        assertEquals(listOf("Delete", "Archive"), projection.actions.map { it.label })
+        assertEquals(listOf("Delete", "Archive", "Snooze"), projection.actions.map { it.label })
         assertEquals(authoredDescriptor, projection.actions.first().descriptor)
         assertTrue(projection.exposesAccessibleName)
         assertFalse(projectNodeSemantics(buildJsonObject {

@@ -178,9 +178,19 @@ fun projectNodeSemantics(
     }
     defaults?.customActionsFrom?.forEach { member ->
         val side = node.objOrNull(member) ?: return@forEach
-        val label = side.stringOrNull("label") ?: return@forEach
-        val descriptor = side.objOrNull("on_trigger") ?: return@forEach
-        actionsByLabel.putIfAbsent(label, SemanticAction(label, descriptor))
+        val richActions = side.arrOrNull("actions")
+        if (richActions != null) {
+            richActions.forEach { raw ->
+                val action = raw as? JsonObject ?: return@forEach
+                val label = action.stringOrNull("label") ?: return@forEach
+                val descriptor = action.objOrNull("on_trigger") ?: return@forEach
+                actionsByLabel.putIfAbsent(label, SemanticAction(label, descriptor))
+            }
+        } else {
+            val label = side.stringOrNull("label") ?: return@forEach
+            val descriptor = side.objOrNull("on_trigger") ?: return@forEach
+            actionsByLabel.putIfAbsent(label, SemanticAction(label, descriptor))
+        }
     }
 
     val authoredName = authored?.stringOrNull("name")?.takeIf(String::isNotBlank)

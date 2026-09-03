@@ -118,7 +118,15 @@ fun ProvideRevealSwipeCoordinator(content: @Composable () -> Unit) {
     }
 }
 
-private val SwipeCellWidth = 46.dp
+/**
+ * The width of one revealed action cell.
+ *
+ * A side's open width is this times its action count, so a renderer drawing
+ * the strip must lay its cells out at exactly this width or the drawn strip
+ * and the travel disagree. Public for that reason: one definition beats two
+ * constants and a test asserting they match.
+ */
+val RevealSwipeCellWidth = 46.dp
 private val SwipeOpenThreshold = 66.dp
 private val SwipeLegacyCap = 96.dp
 private val SwipeDeepThreshold = 150.dp
@@ -156,7 +164,7 @@ fun RevealSwipeRow(
 ) {
     val density = LocalDensity.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val cellPx = with(density) { SwipeCellWidth.toPx() }
+    val cellPx = with(density) { RevealSwipeCellWidth.toPx() }
     val thresholdPx = with(density) { SwipeOpenThreshold.toPx() }
     val legacyCapPx = with(density) { SwipeLegacyCap.toPx() }
     val fixedDeepThresholdPx = with(density) { SwipeDeepThreshold.toPx() }

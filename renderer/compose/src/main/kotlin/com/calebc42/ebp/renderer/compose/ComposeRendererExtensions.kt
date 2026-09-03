@@ -57,6 +57,23 @@ interface ComposeNodeRenderContext {
         onOutcome: (RendererActionOutcome) -> Unit = {},
     ): ActionHandoff
 
+    /**
+     * Run a swipe side's `on_trigger` with the side it was travelled from.
+     *
+     * SPEC 14.3 gives `swipe_start.on_trigger` and `swipe_end.on_trigger` a
+     * `direction` argument the RENDERER knows and the author cannot write
+     * down. The host merges it exactly as it does a visible action's value;
+     * confirmation, capture, durability and offline policy are unchanged.
+     *
+     * The parameter is [RevealSwipeDirection] rather than a free-form object
+     * on purpose: this is the one argument a renderer may contribute, and a
+     * general injection channel would let any renderer forge arguments its
+     * author never authorised. There is deliberately no default — a context
+     * that cannot reach the host's injecting path must say so rather than
+     * silently dispatch an occurrence with the direction missing.
+     */
+    fun swipeAction(descriptor: JsonObject?, direction: RevealSwipeDirection)
+
     fun state(id: String, value: JsonElement?, volatileSecret: Boolean = false)
 
     /** Register a dialog password's native eraser; surfaces need no registry. */

@@ -9,7 +9,7 @@ The current workspace owners are independent:
 
 | Extension | Owner | Targets |
 |---|---|---|
-| `glasspane.material3` | Glasspane's Material library and catalog | app, dialog |
+| `jetpacs.material3` | Jetpacs' Material library and catalog | app, dialog |
 | `jetpacs.components` | Jetpacs' Material-free component library and catalog | app only |
 
 An extension node is usable only when its node type and owning extension

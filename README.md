@@ -11,7 +11,9 @@ for EBP.
 - `:renderer:compose` owns the Foundation/UI implementation of the core node
   set and shared editing controllers. Node presentation is organised as
   components (`ComposeNodeComponent`, one object per node type, installed in a
-  `ComposeComponentRegistry`); the eight core nodes are `CoreComponents`.
+  `ComposeComponentRegistry`, the Compose UI tier of `:renderer:model`'s
+  toolkit-neutral `NodeComponent`/`NodeComponentRegistry`); the eight core
+  nodes are `CoreComponents`.
 - `:renderer:compose-testing` is a test-support library (add it to a module's
   test or androidTest configuration): `ComposeComponentTestController` mounts
   one node in a Compose test rule and records what it asked of its host

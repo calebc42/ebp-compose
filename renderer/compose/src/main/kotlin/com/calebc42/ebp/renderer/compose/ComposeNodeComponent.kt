@@ -4,6 +4,8 @@ package com.calebc42.ebp.renderer.compose
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.Modifier
+import com.calebc42.ebp.renderer.model.NodeComponent
+import com.calebc42.ebp.renderer.model.NodeComponentRegistry
 import com.calebc42.ebp.renderer.model.vocabulary.NodeMemberSet
 import kotlinx.serialization.json.JsonObject
 
@@ -18,15 +20,10 @@ import kotlinx.serialization.json.JsonObject
  * contravariant so a component written against the base
  * [ComposeNodeRenderContext] installs into a registry whose context is richer
  * (a Material context, say), while a component that needs the richer context
- * cannot be installed where only the base one is available.
+ * cannot be installed where only the base one is available. The node type
+ * and member set are the toolkit-neutral [NodeComponent] declaration.
  */
-interface ComposeNodeComponent<in C : ComposeNodeRenderContext> {
-    /** The node discriminator (`t`) this component presents. */
-    val nodeType: String
-
-    /** The generated member set this component reads through; `members.nodeType == nodeType`. */
-    val members: NodeMemberSet
-
+interface ComposeNodeComponent<in C : ComposeNodeRenderContext> : NodeComponent {
     /**
      * Whether this component owns the accepted shape of [node]; deterministic
      * and side-effect free. A registry caller that receives false falls through
@@ -40,39 +37,15 @@ interface ComposeNodeComponent<in C : ComposeNodeRenderContext> {
 }
 
 /**
- * Exact node-type dispatch for one tier of components.
- *
- * Ownership is singular: two components cannot claim one node type, a
- * component's member set must name the type it presents, and a type is
- * either owned or absent — callers degrade an absent type per SPEC §16.2
- * rather than guessing.
+ * The Compose UI tier of [NodeComponentRegistry]: exact node-type dispatch
+ * over components rendering in context [C], with the registry's singular
+ * ownership rules (one owner per type, members naming their type, an
+ * absent type degraded per SPEC §16.2 by the caller rather than guessed).
  */
 @Stable
 class ComposeComponentRegistry<C : ComposeNodeRenderContext>(
     components: Iterable<ComposeNodeComponent<C>>,
-) {
-    private val byType: Map<String, ComposeNodeComponent<C>> = buildMap {
-        for (component in components) {
-            require(component.nodeType.isNotBlank()) { "component node type is blank" }
-            require(component.members.nodeType == component.nodeType) {
-                "component ${component.nodeType} reads through members of " +
-                    component.members.nodeType
-            }
-            require(put(component.nodeType, component) == null) {
-                "two components own node type ${component.nodeType}"
-            }
-        }
-    }
-
-    /** Every owned node type. */
-    val nodeTypes: Set<String> get() = byType.keys
-
-    /** Every installed component, in installation order. */
-    val components: Collection<ComposeNodeComponent<C>> get() = byType.values
-
-    /** The component owning [nodeType], or null when this tier has none. */
-    fun componentFor(nodeType: String): ComposeNodeComponent<C>? = byType[nodeType]
-
+) : NodeComponentRegistry<ComposeNodeComponent<C>>(components) {
     companion object {
         /** A registry owning nothing. */
         fun <C : ComposeNodeRenderContext> empty(): ComposeComponentRegistry<C> =

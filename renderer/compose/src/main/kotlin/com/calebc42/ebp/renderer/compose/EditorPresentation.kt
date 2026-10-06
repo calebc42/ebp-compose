@@ -21,11 +21,11 @@ import androidx.compose.ui.text.input.ImeAction
 import com.calebc42.ebp.renderer.model.ActionHandoff
 import com.calebc42.ebp.renderer.model.EditorConnectionPhase
 import com.calebc42.ebp.renderer.model.EditorSyncPhase
+import com.calebc42.ebp.renderer.model.vocabulary.NodeProperties
+import com.calebc42.ebp.renderer.model.vocabulary.generated.EditorMembers
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.longOrNull
 
 /** Accepted, toolkit-neutral presentation members of one EBP `editor`. */
 data class EditorPresentation(
@@ -132,7 +132,7 @@ fun rememberEditorBinding(
     } else {
         null
     }
-    val initialText = stored ?: node.editorString("value").orEmpty()
+    val initialText = stored ?: NodeProperties(node, EditorMembers)[EditorMembers.Value].orEmpty()
     val mirrors by context.editorHost.editorMirrors.collectAsState()
     val connectionPhase by context.editorHost.editorConnectionPhase.collectAsState()
     val mirror = presentation.document?.let { mirrors[it to id] }
@@ -180,49 +180,43 @@ fun rememberEditorBinding(
     }
 }
 
-/** Pure contract projection shared by tests and every editor presentation. */
+/**
+ * Pure contract projection shared by tests and every editor presentation.
+ *
+ * Reads go through the generated [EditorMembers]: strict and total, so a
+ * string-spelled boolean or number is not a boolean or number (the validator
+ * already rejects it), and the SPEC-prose defaults are applied here.
+ */
 internal fun editorPresentationOf(node: JsonObject): EditorPresentation {
-    val singleLine = node.editorBoolean("single_line")
-    val onEnter = node.editorObject("on_enter")
+    val properties = NodeProperties(node, EditorMembers)
+    val singleLine = properties.getOr(EditorMembers.SingleLine, false)
+    val onEnter = properties[EditorMembers.OnEnter]
     return EditorPresentation(
-        id = (node.getValue("id") as JsonPrimitive).content,
-        document = node.editorString("document"),
-        enabled = node.editorBoolean("enabled", true),
-        readOnly = node.editorBoolean("read_only"),
+        id = requireNotNull(properties[EditorMembers.Id]) { "editor without an id" },
+        document = properties[EditorMembers.Document],
+        enabled = properties.getOr(EditorMembers.Enabled, true),
+        readOnly = properties.getOr(EditorMembers.ReadOnly, false),
         singleLine = singleLine,
-        syntax = node.editorString("syntax"),
-        lineNumbers = node.editorBoolean("line_numbers"),
-        complete = node.editorBoolean("complete"),
-        chromeless = node.editorBoolean("chromeless"),
-        publishState = node.editorBoolean("publish_state"),
-        autofocus = node.editorBoolean("autofocus"),
-        toolbar = node["toolbar"] as? JsonArray,
-        onSave = node.editorObject("on_save"),
+        syntax = properties[EditorMembers.Syntax],
+        lineNumbers = properties.getOr(EditorMembers.LineNumbers, false),
+        complete = properties.getOr(EditorMembers.Complete, false),
+        chromeless = properties.getOr(EditorMembers.Chromeless, false),
+        publishState = properties.getOr(EditorMembers.PublishState, false),
+        autofocus = properties.getOr(EditorMembers.Autofocus, false),
+        toolbar = properties[EditorMembers.Toolbar] as? JsonArray,
+        onSave = properties[EditorMembers.OnSave],
         onEnter = onEnter,
         keyboardOptions = KeyboardOptions(
             imeAction = if (onEnter == null) ImeAction.Default else ImeAction.Done,
         ),
-        lineLimits = node.editorLineLimits(singleLine),
+        lineLimits = properties.editorLineLimits(singleLine),
     )
 }
 
-private fun JsonObject.editorLineLimits(singleLine: Boolean): TextFieldLineLimits {
+private fun NodeProperties.editorLineLimits(singleLine: Boolean): TextFieldLineLimits {
     if (singleLine) return TextFieldLineLimits.SingleLine
     return TextFieldLineLimits.MultiLine(
-        minHeightInLines = editorPositiveInt("min_lines") ?: 3,
-        maxHeightInLines = editorPositiveInt("max_lines") ?: Int.MAX_VALUE,
+        minHeightInLines = EditorMembers.MinLines.readClamped(node) ?: 3,
+        maxHeightInLines = EditorMembers.MaxLines.readClamped(node) ?: Int.MAX_VALUE,
     )
 }
-
-private fun JsonObject.editorString(name: String): String? =
-    (get(name) as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-private fun JsonObject.editorBoolean(name: String, default: Boolean = false): Boolean =
-    (get(name) as? JsonPrimitive)?.booleanOrNull ?: default
-
-private fun JsonObject.editorPositiveInt(name: String): Int? =
-    (get(name) as? JsonPrimitive)?.longOrNull
-        ?.coerceIn(1L, Int.MAX_VALUE.toLong())
-        ?.toInt()
-
-private fun JsonObject.editorObject(name: String): JsonObject? = get(name) as? JsonObject

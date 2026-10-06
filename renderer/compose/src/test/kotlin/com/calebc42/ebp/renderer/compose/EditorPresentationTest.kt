@@ -15,6 +15,20 @@ import org.junit.Test
 
 class EditorPresentationTest {
     @Test
+    fun stringSpelledScalarsAreNotCoerced() {
+        // SPEC §17.1: a receiver applies no coercion the contract omits. The
+        // validator rejects these spellings; the projection must not quietly
+        // read them either.
+        val presentation = editorPresentationOf(
+            node("""{"t":"editor","id":"e","read_only":"true","enabled":"false","min_lines":"5","max_lines":2.5}"""),
+        )
+
+        assertFalse(presentation.readOnly)
+        assertTrue(presentation.enabled)
+        assertEquals(TextFieldLineLimits.MultiLine(3, Int.MAX_VALUE), presentation.lineLimits)
+    }
+
+    @Test
     fun localDefaultsMatchTheCanonicalEditorContract() {
         val presentation = editorPresentationOf(node("""{"t":"editor","id":"draft"}"""))
 

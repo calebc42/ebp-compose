@@ -15,6 +15,26 @@ import org.junit.Test
 
 class TextInputPresentationTest {
     @Test
+    fun stringSpelledScalarsAreNotCoerced() {
+        // SPEC §17.1: a receiver applies no coercion the contract omits. The
+        // validator rejects these spellings; the projection must not quietly
+        // read them either, and an unknown variant falls to the contract
+        // default rather than being guessed (§12 rule 6).
+        val presentation = textInputPresentationOf(
+            node(
+                """{"t":"text_input","id":"n","enabled":"false","single_line":"true",
+                    "content_padding":"4","max_lines":"2","variant":"bogus"}""",
+            ),
+        )
+
+        assertTrue(presentation.enabled)
+        assertFalse(presentation.singleLine)
+        assertNull(presentation.contentPadding)
+        assertEquals(TextFieldLineLimits.MultiLine(1, 1), presentation.lineLimits)
+        assertEquals("outlined", presentation.variant)
+    }
+
+    @Test
     fun projectsCompleteAcceptedPresentationAndGeneratedDefaults() {
         val presentation = textInputPresentationOf(
             node(

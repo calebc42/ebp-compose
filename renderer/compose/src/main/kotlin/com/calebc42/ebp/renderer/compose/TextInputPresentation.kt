@@ -29,16 +29,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.calebc42.ebp.wire.ENUMS
-import com.calebc42.ebp.wire.TEXT_INPUT_CONTRACT
 import com.calebc42.ebp.wire.textInputScalarToUtf16
 import com.calebc42.ebp.renderer.model.ActionHandoff
-import kotlinx.serialization.json.JsonArray
+import com.calebc42.ebp.renderer.model.vocabulary.NodeProperties
+import com.calebc42.ebp.renderer.model.vocabulary.generated.TextInputMembers
+import com.calebc42.ebp.renderer.model.vocabulary.generated.TextInputVariant
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.longOrNull
 
 /** Accepted, toolkit-neutral presentation members of one EBP `text_input`. */
 data class TextInputPresentation(
@@ -152,14 +149,15 @@ fun rememberTextInputBinding(
     node: JsonObject,
     context: ComposeNodeRenderContext,
 ): TextInputBinding {
-    val id = node.requiredString("id")
-    val password = node.boolean("password")
-    val singleLine = node.boolean("single_line")
+    val properties = NodeProperties(node, TextInputMembers)
+    val id = requireNotNull(properties[TextInputMembers.Id]) { "text_input without an id" }
+    val password = properties.getOr(TextInputMembers.Password, false)
+    val singleLine = properties.getOr(TextInputMembers.SingleLine, false)
     val stored = (context.storeValue(id) as? JsonPrimitive)
         ?.takeIf { it.isString }
         ?.content
     val seed = textInputSeed(node, stored)
-    val onSubmit = node.obj("on_submit")
+    val onSubmit = properties[TextInputMembers.OnSubmit]
     val controller = rememberTextInputController(
         presentationEpoch = context.epochOf(id),
         initialText = seed.text,
@@ -168,10 +166,12 @@ fun rememberTextInputBinding(
             id = id,
             password = password,
             singleLine = singleLine,
-            filter = node.string("filter"),
-            maxLengthScalars = (node["max_length"] as? JsonPrimitive)?.longOrNull,
-            clearOnSubmit = node.boolean("clear_on_submit"),
-            onChange = node.obj("on_change"),
+            // The controller resolves the filter against the contract's
+            // character sets itself; it receives the authored spelling.
+            filter = TextInputMembers.Filter.readRaw(node),
+            maxLengthScalars = properties[TextInputMembers.MaxLength]?.toLong(),
+            clearOnSubmit = properties.getOr(TextInputMembers.ClearOnSubmit, false),
+            onChange = properties[TextInputMembers.OnChange],
             onSubmit = onSubmit,
             publishPasswordLocally = context.inDialog,
         ),
@@ -211,58 +211,63 @@ fun rememberTextInputBinding(
     }
 }
 
-/** Pure contract projection shared by unit tests and both renderers. */
+/**
+ * Pure contract projection shared by unit tests and both renderers.
+ *
+ * Reads go through the generated [TextInputMembers]: strict and total, so a
+ * string-spelled boolean or number is not a boolean or number (the validator
+ * already rejects it). The `variant` default and unknown-value fallback come
+ * from the contract (`text_input_schema.variant_default`) through the member's
+ * own default; the other defaults are SPEC §17.4 prose applied here.
+ */
 internal fun textInputPresentationOf(node: JsonObject): TextInputPresentation {
-    val password = node.boolean("password")
-    val singleLine = node.boolean("single_line")
-    val onSubmit = node.obj("on_submit")
+    val properties = NodeProperties(node, TextInputMembers)
+    val password = properties.getOr(TextInputMembers.Password, false)
+    val singleLine = properties.getOr(TextInputMembers.SingleLine, false)
+    val onSubmit = properties[TextInputMembers.OnSubmit]
+    fun nonEmpty(value: String?): String? = value?.takeIf { it.isNotEmpty() }
     return TextInputPresentation(
-        id = node.requiredString("id"),
-        label = node.nonEmptyString("label"),
-        hint = node.nonEmptyString("hint"),
-        supportingText = node.nonEmptyString("supporting_text"),
-        prefix = node.nonEmptyString("prefix"),
-        suffix = node.nonEmptyString("suffix"),
-        leadingIcon = node.nonEmptyString("leading_icon"),
-        trailingIcon = node.nonEmptyString("trailing_icon"),
+        id = requireNotNull(properties[TextInputMembers.Id]) { "text_input without an id" },
+        label = nonEmpty(properties[TextInputMembers.Label]),
+        hint = nonEmpty(properties[TextInputMembers.Hint]),
+        supportingText = nonEmpty(properties[TextInputMembers.SupportingText]),
+        prefix = nonEmpty(properties[TextInputMembers.Prefix]),
+        suffix = nonEmpty(properties[TextInputMembers.Suffix]),
+        leadingIcon = nonEmpty(properties[TextInputMembers.LeadingIcon]),
+        trailingIcon = nonEmpty(properties[TextInputMembers.TrailingIcon]),
         password = password,
         singleLine = singleLine,
-        monospace = node.boolean("monospace"),
-        syntax = node.nonEmptyString("syntax"),
-        autofocus = node.boolean("autofocus"),
-        enabled = node.boolean("enabled", true),
-        isError = node.boolean("is_error"),
-        variant = node.textInputVariant(),
-        mask = node.nonEmptyString("mask"),
-        contentPadding = (node["content_padding"] as? JsonPrimitive)
-            ?.doubleOrNull?.toFloat()
-            ?.takeIf { it.isFinite() && it >= 0f }
-            ?.dp,
-        hideKeyboardOnSubmit = node.boolean("hide_keyboard_on_submit"),
+        monospace = properties.getOr(TextInputMembers.Monospace, false),
+        syntax = nonEmpty(properties[TextInputMembers.Syntax]),
+        autofocus = properties.getOr(TextInputMembers.Autofocus, false),
+        enabled = properties.getOr(TextInputMembers.Enabled, true),
+        isError = properties.getOr(TextInputMembers.IsError, false),
+        variant = properties.getOr(TextInputMembers.Variant, TextInputVariant.Outlined).wire,
+        mask = nonEmpty(properties[TextInputMembers.Mask]),
+        contentPadding = properties[TextInputMembers.ContentPadding]?.dp,
+        hideKeyboardOnSubmit = properties.getOr(TextInputMembers.HideKeyboardOnSubmit, false),
         keyboardOptions = KeyboardOptions(
-            keyboardType = keyboardType(node.string("keyboard"), password),
+            keyboardType = keyboardType(properties[TextInputMembers.Keyboard]?.wire, password),
             imeAction = if (onSubmit != null) ImeAction.Done else ImeAction.Default,
         ),
-        lineLimits = node.lineLimits(singleLine),
+        lineLimits = properties.lineLimits(singleLine),
     )
 }
 
 /** Pure state seed selection implementing retained-draft and scalar rules. */
 internal fun textInputSeed(node: JsonObject, stored: String?): TextInputSeed {
-    val password = node.boolean("password")
-    val authored = node.string("value") ?: ""
+    val properties = NodeProperties(node, TextInputMembers)
+    val password = properties.getOr(TextInputMembers.Password, false)
+    val authored = properties[TextInputMembers.Value] ?: ""
     val initialText = if (password) "" else stored ?: authored
     val retainedDraftWins = !password && stored != null && stored != authored
-    val authoredSelection = node.array("selection")
-        ?.mapNotNull { (it as? JsonPrimitive)?.longOrNull?.toInt() }
+    val authoredSelection = properties[TextInputMembers.Selection]
     val selection = if (retainedDraftWins || authoredSelection == null) {
         TextRange(initialText.length)
     } else {
-        val start = authoredSelection.getOrElse(0) { 0 }
-        val end = authoredSelection.getOrElse(1) { start }
         TextRange(
-            textInputScalarToUtf16(initialText, start),
-            textInputScalarToUtf16(initialText, end),
+            textInputScalarToUtf16(initialText, authoredSelection.first.toInt()),
+            textInputScalarToUtf16(initialText, authoredSelection.second.toInt()),
         )
     }
     return TextInputSeed(initialText, selection)
@@ -294,20 +299,14 @@ fun TextInputBinding.keyboardAction(
     }
 }
 
-private fun JsonObject.lineLimits(singleLine: Boolean): TextFieldLineLimits {
+private fun NodeProperties.lineLimits(singleLine: Boolean): TextFieldLineLimits {
     if (singleLine) return TextFieldLineLimits.SingleLine
-    val minimum = integer("min_lines") ?: 1
-    val maximum = integer("max_lines") ?: minimum
+    val minimum = TextInputMembers.MinLines.readClamped(node) ?: 1
+    val maximum = TextInputMembers.MaxLines.readClamped(node) ?: minimum
     return TextFieldLineLimits.MultiLine(
         minHeightInLines = minimum,
         maxHeightInLines = maximum,
     )
-}
-
-private fun JsonObject.textInputVariant(): String {
-    val authored = string("variant") ?: return TEXT_INPUT_CONTRACT.variantDefault
-    return authored.takeIf { it in ENUMS.getValue("text_input.variant") }
-        ?: TEXT_INPUT_CONTRACT.variantUnknown
 }
 
 private fun keyboardType(name: String?, password: Boolean): KeyboardType {
@@ -322,23 +321,3 @@ private fun keyboardType(name: String?, password: Boolean): KeyboardType {
     }
 }
 
-private fun JsonObject.requiredString(name: String): String =
-    (get(name) as JsonPrimitive).content
-
-private fun JsonObject.string(name: String): String? =
-    (get(name) as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-private fun JsonObject.nonEmptyString(name: String): String? =
-    string(name)?.takeIf { it.isNotEmpty() }
-
-private fun JsonObject.boolean(name: String, default: Boolean = false): Boolean =
-    (get(name) as? JsonPrimitive)?.booleanOrNull ?: default
-
-private fun JsonObject.integer(name: String): Int? =
-    (get(name) as? JsonPrimitive)?.longOrNull
-        ?.coerceIn(1L, Int.MAX_VALUE.toLong())
-        ?.toInt()
-
-private fun JsonObject.obj(name: String): JsonObject? = get(name) as? JsonObject
-
-private fun JsonObject.array(name: String): JsonArray? = get(name) as? JsonArray

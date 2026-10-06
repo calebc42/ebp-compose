@@ -9,7 +9,16 @@ for EBP.
   `EnumDomain`) with their generated per-node member sets and enum classes
   (`vocabulary/generated/`).
 - `:renderer:compose` owns the Foundation/UI implementation of the core node
-  set and shared editing controllers.
+  set and shared editing controllers. Node presentation is organised as
+  components (`ComposeNodeComponent`, one object per node type, installed in a
+  `ComposeComponentRegistry`); the eight core nodes are `CoreComponents`.
+- `:renderer:compose-testing` is a test-support library (add it to a module's
+  test or androidTest configuration): `ComposeComponentTestController` mounts
+  one node in a Compose test rule and records what it asked of its host
+  (`RecordingRenderContext`, `RecordingEditorHost`), `EbpTestSurface` provides
+  the renderer's composition locals, and `EbpGoldens` loads the conformance
+  corpus from the sibling `ebp` checkout (`ebp.dir`). Its own tests replay
+  every `widgets.golden` line through the core tier under Robolectric.
 - `tools/gen-node-members.py` generates `CoreNodeMembers.kt` and
   `CoreNodeEnums.kt` from `../ebp/contract.json` (SPEC §17.1 resolution order,
   amendment #192); `CoreNodeMembersDriftTest` re-reads the contract and pins
@@ -29,7 +38,8 @@ site unless the contract projects one.
 python3 test/test_renderer_extension_generator.py
 python3 tools/gen-node-members.py --check
 ./gradlew :renderer:model:testDebugUnitTest \
-  :renderer:compose:testDebugUnitTest --console=plain
+  :renderer:compose:testDebugUnitTest \
+  :renderer:compose-testing:testDebugUnitTest --console=plain
 ```
 
 The Gradle build needs an Android SDK (`ANDROID_HOME` or `local.properties`).

@@ -16,6 +16,7 @@ class RendererBoundaryTest {
             "core",
             "renderer/model/src/main",
             "renderer/compose/src/main",
+            "renderer/compose-testing/src/main",
         )
         val forbidden = listOf(
             "androidx.compose.material",

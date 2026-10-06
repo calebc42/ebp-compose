@@ -29,6 +29,10 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# The typed-member projection shares its derivation with gen-node-members.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ebp_member_derivation as members_derivation  # noqa: E402
 _EXTENSION_ID = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 _TARGET_ID = re.compile(r"[a-z][a-z0-9_-]*\Z")
 _KOTLIN_PACKAGE = re.compile(
@@ -1075,6 +1079,73 @@ def render_elisp(
 '''
 
 
+def render_member_projections(
+    manifest: dict[str, Any],
+    source_label: str,
+    package_name: str,
+    contract_path: Path | None,
+    strict: bool,
+) -> tuple[str, str, int]:
+    """Render the typed `NodeMemberSet` objects and enum classes for one manifest.
+
+    A format-2 manifest types every member itself. A format-1 manifest carries
+    member names only, so each member is derived by bare name against the core
+    contract (field types, bare enum domains, action hooks); a name the contract
+    does not type becomes an untyped `AnyMember` and is counted, or rejects the
+    run when STRICT. Returns (enums source, members source, untyped count).
+    """
+    md = members_derivation
+    pascal, constant, _, _, _ = _identity(manifest["extension"])
+    header = (
+        f"// GENERATED from {source_label} (format {manifest['format']}) by\n"
+        "// tools/gen-renderer-extension-vocabulary.py. DO NOT EDIT: "
+        f"{pascal}VocabularyTest pins this projection.\n"
+    )
+    domains: dict[str, tuple[str, ...]] = {}
+    class_name_for: dict[str, str] = {}
+    node_sets: list[md.NodeMembersDecl] = []
+    untyped = 0
+    derivation = None
+    if manifest["format"] != 2:
+        if contract_path is None:
+            raise ManifestError("--contract is required to type a format-1 manifest's members")
+        derivation = md.ContractDerivation.load(contract_path)
+    for node_type in manifest["node_types"]:
+        decl = md.NodeMembersDecl(node_type, md.members_object_name(node_type))
+        if manifest["format"] == 2:
+            resolved_row = manifest["_resolved_node_schema"][node_type]
+            for group, required in (("required", True), ("optional", False)):
+                for member, schema in resolved_row[group].items():
+                    resolved = md.resolve_manifest_schema(schema)
+                    if resolved.tag == "enum":
+                        key = f"{node_type}.{member}"
+                        domains[key] = resolved.enum_values
+                        class_name_for[key] = md.enum_class_name(key)
+                        resolved = md.ResolvedType("enum", key, resolved.enum_values)
+                    decl.members.append(md.MemberDecl(member, required, resolved))
+        else:
+            row = manifest["node_schema"][node_type]
+            for group, required in (("required", True), ("optional", False)):
+                for member in _node_member_names(row, group):
+                    try:
+                        resolved = derivation.resolve(None, member)
+                    except md.DerivationError as error:
+                        if strict:
+                            raise ManifestError(f"{node_type}.{member}: {error}") from error
+                        untyped += 1
+                        resolved = md.ResolvedType("untyped")
+                    if resolved.enum_key:
+                        domains[resolved.enum_key] = resolved.enum_values
+                        class_name_for[resolved.enum_key] = md.enum_class_name(resolved.enum_key)
+                    decl.members.append(md.MemberDecl(member, required, resolved))
+        node_sets.append(decl)
+    enums = md.render_enums_kotlin(package_name, domains, f"{constant}_ENUMS", header, class_name_for)
+    members = md.render_members_kotlin(
+        package_name, node_sets, f"{constant}_NODE_MEMBERS", header, class_name_for
+    )
+    return enums, members, untyped
+
+
 def _write_or_check(path: Path, content: str, check: bool) -> bool:
     """Write CONTENT or return whether PATH already contains it in check mode."""
     if check:
@@ -1110,6 +1181,25 @@ def _parser() -> argparse.ArgumentParser:
         help="generated Elisp file",
     )
     parser.add_argument(
+        "--members-output",
+        help="generated Kotlin file of typed NodeMemberSet objects (with --enums-output)",
+    )
+    parser.add_argument(
+        "--enums-output",
+        help="generated Kotlin file of enum domains (with --members-output)",
+    )
+    parser.add_argument(
+        "--contract",
+        help="core ebp/contract.json used to type a format-1 manifest's members "
+        "(default: ../ebp/contract.json beside this checkout)",
+    )
+    parser.add_argument(
+        "--strict-members",
+        action="store_true",
+        help="reject a format-1 member the core contract cannot type instead of "
+        "projecting it untyped",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="fail when either output is missing or stale; write nothing",
@@ -1135,28 +1225,42 @@ def main(argv: list[str] | None = None) -> int:
     source_label = _source_label(manifest_path)
     kotlin = render_kotlin(manifest, source_label, args.kotlin_package)
     elisp = render_elisp(manifest, source_label, elisp_output.name)
-    kotlin_ok = _write_or_check(kotlin_output, kotlin, args.check)
-    elisp_ok = _write_or_check(elisp_output, elisp, args.check)
-    if args.check and not (kotlin_ok and elisp_ok):
-        if not kotlin_ok:
-            print(
-                f"stale generated file: {_display_path(kotlin_output)}",
-                file=sys.stderr,
+    outputs = [(kotlin_output, kotlin), (elisp_output, elisp)]
+    untyped = 0
+    if bool(args.members_output) != bool(args.enums_output):
+        parser.error("--members-output and --enums-output go together")
+    if args.members_output:
+        contract_path = (
+            _repo_path(args.contract) if args.contract
+            else ROOT.parent / "ebp" / "contract.json"
+        )
+        try:
+            enums, members, untyped = render_member_projections(
+                manifest, source_label, args.kotlin_package,
+                contract_path if contract_path.is_file() else None,
+                args.strict_members,
             )
-        if not elisp_ok:
-            print(
-                f"stale generated file: {_display_path(elisp_output)}",
-                file=sys.stderr,
-            )
+        except (ManifestError, members_derivation.DerivationError) as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        outputs.append((_repo_path(args.enums_output), enums))
+        outputs.append((_repo_path(args.members_output), members))
+    stale = [
+        path for path, content in outputs
+        if not _write_or_check(path, content, args.check)
+    ]
+    if args.check and stale:
+        for path in stale:
+            print(f"stale generated file: {_display_path(path)}", file=sys.stderr)
         return 1
 
     verb = "checked" if args.check else "wrote"
     print(
         verb,
-        _display_path(kotlin_output),
-        "and",
-        _display_path(elisp_output),
-        f'({len(manifest["node_types"])} node types)',
+        " and ".join(_display_path(path) for path, _ in outputs),
+        f'({len(manifest["node_types"])} node types'
+        + (f", {untyped} untyped members" if untyped else "")
+        + ")",
     )
     return 0
 

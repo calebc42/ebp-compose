@@ -18,3 +18,10 @@ dependencies {
     api(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
 }
+
+tasks.withType<Test>().configureEach {
+    // CoreNodeMembersDriftTest re-reads the sibling `ebp` checkout's
+    // contract.json; every build that includes this module maps the same
+    // physical directory, so the path is resolved from this project.
+    systemProperty("ebp.dir", projectDir.resolve("../../../ebp").canonicalPath)
+}

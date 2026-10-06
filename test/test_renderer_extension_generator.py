@@ -512,5 +512,103 @@ class RendererExtensionGeneratorTest(unittest.TestCase):
             self.assertIn("must match that node's true_requires_parent", result.stderr)
 
 
+class RendererExtensionMemberProjectionTest(unittest.TestCase):
+    """Pin the typed NodeMemberSet/enum projection of both manifest formats."""
+
+    CONTRACT = ROOT.parent / "ebp" / "contract.json"
+
+    def run_generator(self, *arguments: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(GENERATOR), *(str(value) for value in arguments)],
+            cwd="/",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_format_two_projects_typed_members_and_enums(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            manifest = temp / "example-typed.json"
+            manifest.write_text(json.dumps(format_two_manifest()), encoding="utf-8")
+            members = temp / "ExampleTypedMembers.kt"
+            enums = temp / "ExampleTypedEnums.kt"
+            arguments = (
+                manifest,
+                "--kotlin-output", temp / "ExampleTypedVocabulary.kt",
+                "--kotlin-package", "com.example.typed",
+                "--elisp-output", temp / "example-typed-vocabulary.el",
+                "--members-output", members,
+                "--enums-output", enums,
+            )
+            generated = self.run_generator(*arguments)
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            members_text = members.read_text(encoding="utf-8")
+            enums_text = enums.read_text(encoding="utf-8")
+            self.assertIn("package com.example.typed", members_text)
+            self.assertIn("_NODE_MEMBERS: Map<String, NodeMemberSet>", members_text)
+            self.assertIn("_ENUMS: Map<String, EnumDomain<*>>", enums_text)
+            for spelling in (
+                "ActionMember(", "NodeArrayMember(", "ChildNodeMember(",
+                "ObjectMember(", "ArrayMember(", "override val required",
+            ):
+                self.assertIn(spelling, members_text)
+            self.assertNotIn("untyped", members_text)
+            checked = self.run_generator(*arguments, "--check")
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            members.write_text(members_text + "\n// stale\n", encoding="utf-8")
+            stale = self.run_generator(*arguments, "--check")
+            self.assertEqual(1, stale.returncode)
+            self.assertIn("ExampleTypedMembers.kt", stale.stderr)
+
+    def test_members_output_requires_its_enums_twin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            manifest = temp / "example.json"
+            manifest.write_text(json.dumps(example_manifest()), encoding="utf-8")
+            result = self.run_generator(
+                manifest,
+                "--kotlin-output", temp / "V.kt",
+                "--kotlin-package", "com.example.controls",
+                "--elisp-output", temp / "v.el",
+                "--members-output", temp / "M.kt",
+            )
+            self.assertEqual(2, result.returncode)
+            self.assertIn("go together", result.stderr)
+
+    def test_format_one_members_derive_by_name_and_fall_back_untyped(self) -> None:
+        if not self.CONTRACT.is_file():
+            self.skipTest("sibling ebp/contract.json not available")
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            manifest = temp / "example.json"
+            manifest.write_text(json.dumps(example_manifest()), encoding="utf-8")
+            members = temp / "ExampleControlsMembers.kt"
+            arguments = (
+                manifest,
+                "--kotlin-output", temp / "ExampleControlsVocabulary.kt",
+                "--kotlin-package", "com.example.controls",
+                "--elisp-output", temp / "example-controls-vocabulary.el",
+                "--members-output", members,
+                "--enums-output", temp / "ExampleControlsEnums.kt",
+                "--contract", self.CONTRACT,
+            )
+            generated = self.run_generator(*arguments)
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            self.assertIn("untyped members", generated.stdout)
+            text = members.read_text(encoding="utf-8")
+            self.assertIn('StringMember("label", required = true)', text)
+            self.assertIn('ActionMember("on_tap", required = true)', text)
+            self.assertIn('ArrayMember("options", required = true, tag = "enum-option-array")', text)
+            self.assertIn('AnyMember("pinned", required = false, tag = "untyped")', text)
+            # `selected` is `varies-per-node` in the core contract, so by bare
+            # name it is untyped too; strict mode rejects the first such member.
+            self.assertIn('AnyMember("selected", required = true, tag = "untyped")', text)
+            strict = self.run_generator(*arguments, "--strict-members")
+            self.assertEqual(2, strict.returncode)
+            self.assertIn("example.choice.selected", strict.stderr)
+            self.assertIn("has no field type", strict.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

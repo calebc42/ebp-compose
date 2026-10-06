@@ -31,6 +31,17 @@ python3 tools/gen-renderer-extension-vocabulary.py \
 Omit `--check` only when intentionally regenerating after changing the
 manifest. Never edit either generated vocabulary file by hand.
 
+With `--members-output /path/to/owner/ExampleMembers.kt --enums-output
+/path/to/owner/ExampleEnums.kt` the generator also projects one
+`NodeMemberSet` object per node type (`ExampleActionMembers`, …) and one
+`enum class` per enum member into the same Kotlin package, for renderers that
+read through `NodeProperties` (see `renderer/model/.../vocabulary/`). A
+format-2 manifest types every member itself. A format-1 manifest carries
+names only, so each member is derived by bare name against the core contract
+(`--contract`, default `../ebp/contract.json`); a name the contract cannot
+type is projected as an untyped `AnyMember` and counted on stdout, or rejects
+the run under `--strict-members`. `--check` covers these outputs too.
+
 ## Manifest formats
 
 Format 1 is the original required/optional member-name projection. Its inputs

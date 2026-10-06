@@ -713,8 +713,9 @@ object UniversalMembers : NodeMemberSet("*") {
     val Clip: BooleanMember = BooleanMember("clip", required = false)
     val AlignSelf: EnumMember<AlignSelf> = EnumMember("align_self", required = false, domain = com.calebc42.ebp.renderer.model.vocabulary.generated.AlignSelf)
     val Semantics: ObjectMember = ObjectMember("semantics", required = false, tag = "semantics-object")
+    val Bind: ObjectMember = ObjectMember("bind", required = false, tag = "bind-object")
     override val required: List<NodeMember<*>> = listOf()
-    override val optional: List<NodeMember<*>> = listOf(Key, Id, ScrollHere, Padding, Pad, Width, Height, MinWidth, MaxWidth, MinHeight, MaxHeight, FillFraction, AspectRatio, Weight, Bg, Corner, Border, Alpha, Clip, AlignSelf, Semantics)
+    override val optional: List<NodeMember<*>> = listOf(Key, Id, ScrollHere, Padding, Pad, Width, Height, MinWidth, MaxWidth, MinHeight, MaxHeight, FillFraction, AspectRatio, Weight, Bg, Corner, Border, Alpha, Clip, AlignSelf, Semantics, Bind)
 }
 
 /** Every generated member set, keyed by node type. */

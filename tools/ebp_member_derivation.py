@@ -213,6 +213,8 @@ def resolve_manifest_schema(schema: dict[str, Any]) -> ResolvedType:
         return ResolvedType("enum", None, tuple(schema["values"]))
     if kind == "integer":
         return ResolvedType("integer", minimum=int(schema["minimum"]), maximum=int(schema["maximum"]))
+    if kind == "swipe-side":
+        return ResolvedType("swipe-object")
     if kind in {"string", "number", "boolean", "node", "node-array", "action", "object", "array", "identifier-map"}:
         return ResolvedType({"action": "action-descriptor"}.get(kind, kind))
     raise DerivationError(f"unprojected manifest schema type {kind!r}")

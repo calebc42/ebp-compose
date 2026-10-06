@@ -47,6 +47,10 @@ _MAX_SCHEMA_STRING = 1_048_576
 # array without adding downstream member names to the wire module.  Keep the
 # type vocabulary deliberately scalar: node/action/aggregate shapes still
 # require their owning, purpose-built admission rules.
+# The swipe-side validator keys a side's trigger hook by the member that
+# carries it, so only these two members may be typed as swipe sides.
+_SWIPE_SIDE_MEMBERS = {"swipe_start", "swipe_end"}
+
 _SELECTION_OPTION_MEMBER_TYPES = {
     "boolean",
     "finite-number",
@@ -197,6 +201,14 @@ def _resolve_format_2_schemas(
             normalized[member] = resolve(
                 members[member], f"{where}[{member!r}]", stack
             )
+            if (
+                normalized[member]["type"] == "swipe-side"
+                and member not in _SWIPE_SIDE_MEMBERS
+            ):
+                raise ManifestError(
+                    f"{where}[{member!r}] types a swipe side, which only a "
+                    "swipe_start or swipe_end member may carry"
+                )
         return normalized
 
     def resolve(
@@ -296,9 +308,12 @@ def _resolve_format_2_schemas(
             minimum, maximum = _collection_bounds(
                 row, where, "min_items", "max_items"
             )
+            items = resolve(row["items"], f"{where}.items", stack)
+            if items["type"] == "swipe-side":
+                raise ManifestError(f"{where}.items must not be a swipe side")
             return {
                 "type": schema_type,
-                "items": resolve(row["items"], f"{where}.items", stack),
+                "items": items,
                 "min_items": minimum,
                 "max_items": maximum,
             }
@@ -311,9 +326,12 @@ def _resolve_format_2_schemas(
             minimum, maximum = _collection_bounds(
                 row, where, "min_entries", "max_entries"
             )
+            values = resolve(row["values"], f"{where}.values", stack)
+            if values["type"] == "swipe-side":
+                raise ManifestError(f"{where}.values must not be a swipe side")
             return {
                 "type": schema_type,
-                "values": resolve(row["values"], f"{where}.values", stack),
+                "values": values,
                 "min_entries": minimum,
                 "max_entries": maximum,
             }
@@ -339,6 +357,9 @@ def _resolve_format_2_schemas(
                 "max_items": maximum,
             }
         if schema_type == "action":
+            _closed_mapping(row, where, {"type"})
+            return {"type": schema_type}
+        if schema_type == "swipe-side":
             _closed_mapping(row, where, {"type"})
             return {"type": schema_type}
         raise ManifestError(f"{where}.type has unsupported value {schema_type!r}")
@@ -813,6 +834,8 @@ def _kt_value_schema(schema: dict[str, Any]) -> str:
         )
     if schema_type == "action":
         return prefix + "ActionDescriptorValue"
+    if schema_type == "swipe-side":
+        return prefix + "SwipeSideValue"
     raise AssertionError(f"unprojected schema type {schema_type}")
 
 
@@ -871,6 +894,8 @@ def _el_value_schema(schema: dict[str, Any]) -> str:
         )
     if schema_type == "action":
         return "(:type action)"
+    if schema_type == "swipe-side":
+        return "(:type swipe-side)"
     raise AssertionError(f"unprojected schema type {schema_type}")
 
 

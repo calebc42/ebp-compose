@@ -70,12 +70,15 @@ The closed value algebra is:
 {"type":"node"}
 {"type":"node-array","min_items":0,"max_items":16}
 {"type":"action"}
+{"type":"swipe-side"}
 ```
 
 Every string, numeric value, array, node array, and identifier map has explicit
 bounds. Collection maxima may not exceed 10,000, string maxima may not exceed
 1,048,576, and a complete format-2 manifest may not exceed 256 KiB. Object
 required/optional maps are disjoint and object values are closed at runtime.
-The `node` and `action` cases delegate their nested EBP structure to the
-ordinary Node and ActionDescriptor validators rather than defining a parallel
-wire grammar.
+The `node`, `action` and `swipe-side` cases delegate their nested EBP
+structure to the ordinary Node, ActionDescriptor and swipe-side validators
+rather than defining a parallel wire grammar. A `swipe-side` may only type a
+member named `swipe_start` or `swipe_end` (and never an array item or map
+value), because the validator keys the side's trigger hook by that name.

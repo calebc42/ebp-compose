@@ -117,7 +117,7 @@ def format_two_manifest() -> dict:
                     },
                     "on_tap": {"type": "action"},
                 },
-                "optional": {},
+                "optional": {"swipe_end": {"type": "swipe-side"}},
             },
         },
         "stateful_when_present": {},
@@ -236,6 +236,7 @@ class RendererExtensionGeneratorTest(unittest.TestCase):
                 "NodeValue",
                 "NodeArrayValue",
                 "ActionDescriptorValue",
+                "SwipeSideValue",
             ):
                 self.assertIn(spelling, kotlin_text)
             for spelling in (
@@ -250,6 +251,7 @@ class RendererExtensionGeneratorTest(unittest.TestCase):
                 ":type node",
                 ":type node-array",
                 ":type action",
+                ":type swipe-side",
             ):
                 self.assertIn(spelling, elisp_text)
 
@@ -287,6 +289,28 @@ class RendererExtensionGeneratorTest(unittest.TestCase):
             )
             self.assertEqual(2, result.returncode)
             self.assertIn(expected, result.stderr)
+
+    def test_format_two_binds_swipe_sides_to_their_member_names(self) -> None:
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["optional"]
+            .__setitem__("sideways", {"type": "swipe-side"}),
+            "manifest.node_schema['example.typed'].optional['sideways'] types "
+            "a swipe side, which only a swipe_start or swipe_end member may carry",
+        )
+        self.assert_format_two_error(
+            lambda value: value["node_schema"]["example.typed"]["optional"]
+            .__setitem__(
+                "swipe_start",
+                {
+                    "type": "array",
+                    "items": {"type": "swipe-side"},
+                    "min_items": 0,
+                    "max_items": 2,
+                },
+            ),
+            "manifest.node_schema['example.typed'].optional['swipe_start'].items "
+            "must not be a swipe side",
+        )
 
     def test_format_two_rejects_unresolved_and_cyclic_references(self) -> None:
         self.assert_format_two_error(
@@ -551,6 +575,7 @@ class RendererExtensionMemberProjectionTest(unittest.TestCase):
             for spelling in (
                 "ActionMember(", "NodeArrayMember(", "ChildNodeMember(",
                 "ObjectMember(", "ArrayMember(", "override val required",
+                'ObjectMember("swipe_end", required = false, tag = "swipe-object")',
             ):
                 self.assertIn(spelling, members_text)
             self.assertNotIn("untyped", members_text)

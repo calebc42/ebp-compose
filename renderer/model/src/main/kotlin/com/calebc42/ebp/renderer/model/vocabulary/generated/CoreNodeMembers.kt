@@ -69,7 +69,7 @@ object ImageMembers : NodeMemberSet("image") {
 /** Typed members of the `date_stamp` node. */
 object DateStampMembers : NodeMemberSet("date_stamp") {
     val Day: IntMember = IntMember("day", required = false, tag = "integer-1-31", minimum = 1L, maximum = 31L)
-    val Month: StringMember = StringMember("month", required = false, tag = "yyyy-mm", format = "yyyy-mm")
+    val Month: StringMember = StringMember("month", required = false)
     val MonthIndex: IntMember = IntMember("month_index", required = false, tag = "integer-1-12", minimum = 1L, maximum = 12L)
     val Year: IntMember = IntMember("year", required = false, tag = "non-negative-integer", minimum = 0L, maximum = 9007199254740991L)
     val Time: StringMember = StringMember("time", required = false)

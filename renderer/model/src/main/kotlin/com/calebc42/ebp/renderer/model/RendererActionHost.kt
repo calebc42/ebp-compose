@@ -38,10 +38,18 @@ class RendererActionRequest(
     /** Explicit volatile secret capture; never interchangeable with [fields]. */
     val secret: RendererVolatileSecret? = null,
     val sourceId: String? = null,
+    /**
+     * SPEC 13.8.5/14.3 (amendment #195): the SPEC 16.1 identity path of the
+     * node whose hook fired, in the engine's grammar (key, else id, else JSON
+     * position, each with the type), so the host can inject `item` for a
+     * node inside an expanded template. Null when the renderer cannot name
+     * the node, which only costs the injection.
+     */
+    val sourcePath: String? = null,
 ) {
     override fun toString(): String =
         "RendererActionRequest(context=$context, descriptor=$descriptor, " +
-            "value=$value, injected=${injected != null}, " +
+            "value=$value, injected=${injected != null}, sourcePath=$sourcePath, " +
             "fields=${fields?.size ?: 0}<redacted>, secret=$secret, " +
             "sourceId=$sourceId)"
 }

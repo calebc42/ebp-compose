@@ -32,7 +32,7 @@ class DerivationError(ValueError):
 NON_NODE_ENUM_DOMAINS = frozenset({
     "dialog.style", "notification.priority", "diagnostic.severity",
     "toolbar.placement", "tab_item.icon_position", "theme.layout_direction",
-    "window.size_class", "locale.hour_cycle", "snackbar.result", "canvas.op",
+    "window.size_class", "locale.hour_cycle", "visible.op", "snackbar.result", "canvas.op",
 })
 
 KOTLIN_PACKAGE = "com.calebc42.ebp.renderer.model.vocabulary"

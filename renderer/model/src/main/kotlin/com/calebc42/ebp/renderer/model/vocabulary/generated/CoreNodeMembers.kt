@@ -715,8 +715,9 @@ object UniversalMembers : NodeMemberSet("*") {
     val Semantics: ObjectMember = ObjectMember("semantics", required = false, tag = "semantics-object")
     val Bind: ObjectMember = ObjectMember("bind", required = false, tag = "bind-object")
     val Template: ChildNodeMember = ChildNodeMember("template", required = false)
+    val VisibleWhen: ArrayMember = ArrayMember("visible_when", required = false, tag = "visible-when-array")
     override val required: List<NodeMember<*>> = listOf()
-    override val optional: List<NodeMember<*>> = listOf(Key, Id, ScrollHere, Padding, Pad, Width, Height, MinWidth, MaxWidth, MinHeight, MaxHeight, FillFraction, AspectRatio, Weight, Bg, Corner, Border, Alpha, Clip, AlignSelf, Semantics, Bind, Template)
+    override val optional: List<NodeMember<*>> = listOf(Key, Id, ScrollHere, Padding, Pad, Width, Height, MinWidth, MaxWidth, MinHeight, MaxHeight, FillFraction, AspectRatio, Weight, Bg, Corner, Border, Alpha, Clip, AlignSelf, Semantics, Bind, Template, VisibleWhen)
 }
 
 /** Every generated member set, keyed by node type. */

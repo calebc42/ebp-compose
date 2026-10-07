@@ -124,6 +124,23 @@ def _closed_mapping(
     return row
 
 
+def _documented(value: Any, where: str) -> dict[str, Any]:
+    """Return VALUE without its documentation-only `description`.
+
+    A format-2 node row, member schema or definition MAY carry a non-empty
+    string `description` for the agent-facing catalog export. It never
+    reaches a projection or the schema digest, so the closed-mapping checks
+    below see the row without it.
+    """
+    row = _mapping(value, where)
+    if "description" not in row:
+        return row
+    description = row["description"]
+    if not isinstance(description, str) or not description.strip():
+        raise ManifestError(f"{where}.description must be a non-empty string")
+    return {key: member for key, member in row.items() if key != "description"}
+
+
 def _bounded_integer(value: Any, where: str, *, maximum: int) -> int:
     if type(value) is not int or value < 0 or value > maximum:
         raise ManifestError(
@@ -216,7 +233,7 @@ def _resolve_format_2_schemas(
         where: str,
         stack: tuple[str, ...] = (),
     ) -> dict[str, Any]:
-        row = _mapping(value, where)
+        row = _documented(value, where)
         schema_type = row.get("type")
         if not isinstance(schema_type, str):
             raise ManifestError(f"{where}.type must be a string")
@@ -377,7 +394,7 @@ def _resolve_format_2_schemas(
     for node_type in manifest["node_types"]:
         row_where = f"manifest.node_schema[{node_type!r}]"
         row = _closed_mapping(
-            manifest["node_schema"][node_type],
+            _documented(manifest["node_schema"][node_type], row_where),
             row_where,
             {"required", "optional"},
         )
@@ -455,7 +472,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
             "manifest.node_schema keys must exactly match manifest.node_types"
         )
     for node_type in node_types:
-        row = _mapping(schemas[node_type], f"manifest.node_schema[{node_type!r}]")
+        row_where = f"manifest.node_schema[{node_type!r}]"
+        row = _mapping(schemas[node_type], row_where)
+        if format_version == 2:
+            row = _documented(row, row_where)
         if set(row) != {"required", "optional"}:
             raise ManifestError(
                 f"manifest.node_schema[{node_type!r}] must contain only "

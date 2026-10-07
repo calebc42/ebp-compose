@@ -290,6 +290,47 @@ class RendererExtensionGeneratorTest(unittest.TestCase):
             self.assertEqual(2, result.returncode)
             self.assertIn(expected, result.stderr)
 
+    def test_format_two_descriptions_are_documentation_only(self) -> None:
+        """A `description` on a node row, member or definition changes no output."""
+        def project(temp: Path, manifest_data: dict) -> tuple[str, str]:
+            # The same paths each time: the outputs name their manifest.
+            manifest = temp / "example-typed.json"
+            kotlin = temp / "ExampleTypedVocabulary.kt"
+            elisp = temp / "example-typed-vocabulary.el"
+            manifest.write_text(json.dumps(manifest_data), encoding="utf-8")
+            generated = self.run_generator(
+                manifest, "--kotlin-output", kotlin, "--kotlin-package",
+                "com.example.typed", "--elisp-output", elisp,
+            )
+            self.assertEqual(0, generated.returncode, generated.stderr)
+            return kotlin.read_text(encoding="utf-8"), elisp.read_text(encoding="utf-8")
+
+        plain = format_two_manifest()
+        documented = format_two_manifest()
+        documented["node_schema"]["example.typed"]["description"] = "A typed example node."
+        documented["node_schema"]["example.typed"]["required"]["count"]["description"] = "How many."
+        documented["definitions"]["option"]["description"] = "One selectable option."
+        documented["definitions"]["option"]["required"]["label"]["description"] = "The option's label."
+        with tempfile.TemporaryDirectory() as directory:
+            before = project(Path(directory), plain)
+            after = project(Path(directory), documented)
+        self.assertEqual(before, after)
+        self.assertIn("SCHEMA_SHA256", after[0])
+
+        for bad in ("", 7):
+            broken = format_two_manifest()
+            broken["node_schema"]["example.typed"]["description"] = bad
+            with tempfile.TemporaryDirectory() as directory:
+                temp = Path(directory)
+                manifest = temp / "broken.json"
+                manifest.write_text(json.dumps(broken), encoding="utf-8")
+                generated = self.run_generator(
+                    manifest, "--kotlin-output", temp / "B.kt", "--kotlin-package",
+                    "com.example.typed", "--elisp-output", temp / "b.el",
+                )
+                self.assertNotEqual(0, generated.returncode)
+                self.assertIn("description must be a non-empty string", generated.stderr)
+
     def test_format_two_binds_swipe_sides_to_their_member_names(self) -> None:
         self.assert_format_two_error(
             lambda value: value["node_schema"]["example.typed"]["optional"]

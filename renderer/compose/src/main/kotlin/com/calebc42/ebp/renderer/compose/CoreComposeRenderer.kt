@@ -178,7 +178,12 @@ object CoreTextInputComponent : ComposeNodeComponent<ComposeNodeRenderContext> {
     override fun render(node: JsonObject, context: ComposeNodeRenderContext, modifier: Modifier) {
         val properties = NodeProperties(node, TextInputMembers)
         val id = properties[TextInputMembers.Id]
-        var value by remember(node) {
+        // Keyed on the node's identity, not its value: kotlinx JsonObject
+        // equality deep-walks even the same instance, and the engine hands
+        // back the previous instance for an untouched node, so identity is
+        // both the cheaper and the right re-seed trigger (jetpacs-poc
+        // PLAN-responsiveness C4a).
+        var value by remember(NodeIdentity(node)) {
             mutableStateOf(properties.getOr(TextInputMembers.Value, ""))
         }
         BasicTextField(
@@ -190,6 +195,12 @@ object CoreTextInputComponent : ComposeNodeComponent<ComposeNodeRenderContext> {
             modifier = modifier.coreSemantics(node, context),
         )
     }
+}
+
+/** A `remember` key that compares a node by reference, see [CoreTextInputComponent]. */
+private class NodeIdentity(val node: JsonObject) {
+    override fun equals(other: Any?): Boolean = other is NodeIdentity && other.node === node
+    override fun hashCode(): Int = System.identityHashCode(node)
 }
 
 /** The core tier as a registry; a product renderer may install or wrap it. */

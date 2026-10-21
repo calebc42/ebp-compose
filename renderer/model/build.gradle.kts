@@ -1,22 +1,42 @@
+// :renderer:model is Kotlin Multiplatform with an Android and a JVM target so
+// the Jetpacs desktop host can link it (jetpacs-poc
+// docs/PLAN-desktop-d1-renderers.md). Both targets are JVM platforms, so
+// commonMain has no metadata compilation: it compiles once per platform, may
+// use JDK APIs, and sees the jvm-only `:wire` module exactly as the Android
+// library did.
 plugins {
-    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.kmp.library)
 }
 
-android {
-    namespace = "com.calebc42.ebp.renderer.model"
-    compileSdk = 37
-    defaultConfig { minSdk = 34 }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+kotlin {
+    jvmToolchain(21)
+
+    jvm()
+
+    android {
+        namespace = "com.calebc42.ebp.renderer.model"
+        compileSdk = 37
+        minSdk = 34
+        withHostTestBuilder {}
+    }
+
+    sourceSets {
+        commonMain.dependencies {
+            api(projects.wire)
+            api(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.serialization.json)
+        }
+        // Plain JUnit tests: they run on both `jvmTest` and
+        // `testAndroidHostTest`.
+        commonTest.dependencies {
+            implementation(libs.junit)
+        }
     }
 }
 
-dependencies {
-    api(projects.wire)
-    api(libs.kotlinx.coroutines.core)
-    api(libs.kotlinx.serialization.json)
-    testImplementation(libs.junit)
+tasks.named<Test>("jvmTest") {
+    useJUnit()
 }
 
 tasks.withType<Test>().configureEach {

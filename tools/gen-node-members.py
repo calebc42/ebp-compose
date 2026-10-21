@@ -3,7 +3,7 @@
 
 Writes two Kotlin files into `:renderer:model`:
 
-    renderer/model/src/main/kotlin/com/calebc42/ebp/renderer/model/vocabulary/generated/
+    renderer/model/src/commonMain/kotlin/com/calebc42/ebp/renderer/model/vocabulary/generated/
         CoreNodeEnums.kt    one `enum class` per enum domain a node member uses
         CoreNodeMembers.kt  one `NodeMemberSet` object per node type, plus
                             `UniversalMembers` and the `CORE_NODE_MEMBERS` map
@@ -38,7 +38,7 @@ from ebp_member_derivation import (  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGE = "com.calebc42.ebp.renderer.model.vocabulary.generated"
-DEFAULT_OUTPUT_DIR = ROOT / "renderer/model/src/main/kotlin/com/calebc42/ebp/renderer/model/vocabulary/generated"
+DEFAULT_OUTPUT_DIR = ROOT / "renderer/model/src/commonMain/kotlin/com/calebc42/ebp/renderer/model/vocabulary/generated"
 
 
 def build(contract_path: Path) -> tuple[str, str, int, int]:

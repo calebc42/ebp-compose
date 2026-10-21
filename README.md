@@ -39,7 +39,7 @@ site unless the contract projects one.
 ```sh
 python3 test/test_renderer_extension_generator.py
 python3 tools/gen-node-members.py --check
-./gradlew :renderer:model:testDebugUnitTest \
+./gradlew :renderer:model:jvmTest :renderer:model:testAndroidHostTest \
   :renderer:compose:testDebugUnitTest \
   :renderer:compose-testing:testDebugUnitTest --console=plain
 ```

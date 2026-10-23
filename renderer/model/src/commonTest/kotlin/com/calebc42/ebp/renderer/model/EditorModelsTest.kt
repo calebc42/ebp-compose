@@ -38,6 +38,29 @@ class EditorModelsTest {
     }
 
     @Test
+    fun headingRunsKeepOnlyAnInRangeLevel() {
+        fun run(role: String, level: Int) = buildJsonObject {
+            put("start", 0)
+            put("end", 1)
+            put("role", role)
+            put("level", level)
+        }
+        val fontify = parseFontify(
+            buildJsonObject {
+                put("session", "s")
+                put("seq", 1)
+                put("runs", buildJsonArray {
+                    add(run("heading", 3))
+                    add(run("heading", 9))
+                    add(run("keyword", 2))
+                })
+            },
+            "x",
+        )!!
+        assertEquals(listOf(3, null, null), fontify.runs.map { it.level })
+    }
+
+    @Test
     fun annotationParsersConvertScalarRangesToCompleteUtf16CodePoints() {
         val text = "a😀b"
         val fontify = parseFontify(

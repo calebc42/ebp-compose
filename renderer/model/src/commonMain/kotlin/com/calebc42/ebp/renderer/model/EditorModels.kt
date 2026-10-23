@@ -42,8 +42,18 @@ data class EditorMirror(
     val epoch: Long,
 )
 
-/** One fontification run expressed in UTF-16 offsets into its batch text. */
-data class FontifyRun(val start: Int, val end: Int, val role: String)
+/**
+ * One fontification run expressed in UTF-16 offsets into its batch text.
+ * [level] is a `heading` run's outline depth, 1 to 8 (SPEC 19.5); it is
+ * null for every other role and whenever the wire value was absent or out of
+ * range, which means the level-1 heading style.
+ */
+data class FontifyRun(
+    val start: Int,
+    val end: Int,
+    val role: String,
+    val level: Int? = null,
+)
 
 /** One diagnostic range expressed in UTF-16 offsets into its batch text. */
 data class DiagnosticRange(
@@ -276,7 +286,10 @@ fun parseFontify(params: JsonObject, text: String): FontifySet? {
                 .coerceIn(startScalar, scalarCount)
             val start = index.convert(startScalar)
             val end = index.convert(endScalar)
-            if (end > start) add(FontifyRun(start, end, run.stringOr("role")))
+            val role = run.stringOr("role")
+            val level = run.intOrNull("level")
+                ?.takeIf { role == "heading" && it in 1..8 }
+            if (end > start) add(FontifyRun(start, end, role, level))
         }
     }
     return FontifySet(

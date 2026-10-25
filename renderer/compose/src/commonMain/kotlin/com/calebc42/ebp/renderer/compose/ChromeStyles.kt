@@ -32,6 +32,8 @@ data class ComposeChromeStyles(
     val drawerShape: Shape? = null,
     /** The drawer sheet's width; null keeps the toolkit's sizing. */
     val drawerWidth: Dp? = null,
+    /** The scrim over content behind a modal drawer; null keeps the toolkit's. */
+    val drawerScrim: Color? = null,
     val snackbarContainer: Color? = null,
     val snackbarContent: Color? = null,
     val snackbarShape: Shape? = null,

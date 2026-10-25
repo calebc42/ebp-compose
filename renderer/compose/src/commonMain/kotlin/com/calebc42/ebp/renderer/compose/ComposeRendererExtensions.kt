@@ -326,7 +326,10 @@ data class ComposeRendererConfiguration(
                     "App profile does not advertise every canonical override in $scope"
                 }
             }
-            if (scope in dialogExtensions) {
+            // A dialog admitting the scope need not carry every node type the
+            // scope overrides: an override is selected only for a node in the
+            // document, and the dialog profile already bounds those.
+            if (scope in dialogExtensions && scope !in appExtensions) {
                 require(dialogNodeTypes.containsAll(nodeTypes)) {
                     "Dialog profile does not advertise every canonical override in $scope"
                 }

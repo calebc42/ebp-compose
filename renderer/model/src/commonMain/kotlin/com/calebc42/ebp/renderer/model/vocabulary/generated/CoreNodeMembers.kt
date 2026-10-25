@@ -543,6 +543,7 @@ object ScaffoldMembers : NodeMemberSet("scaffold") {
     val Snackbar: StringMember = StringMember("snackbar", required = false)
     val SnackbarAction: ObjectMember = ObjectMember("snackbar_action", required = false, tag = "label-on-tap-object")
     val OnRefresh: ActionMember = ActionMember("on_refresh", required = false)
+    val OnBack: ActionMember = ActionMember("on_back", required = false)
     val TopBarStyle: EnumMember<ScaffoldTopBarStyle> = EnumMember("top_bar_style", required = false, domain = com.calebc42.ebp.renderer.model.vocabulary.generated.ScaffoldTopBarStyle)
     val TopBarSubtitle: StringMember = StringMember("top_bar_subtitle", required = false)
     val ScrollBehavior: EnumMember<ScaffoldScrollBehavior> = EnumMember("scroll_behavior", required = false, domain = com.calebc42.ebp.renderer.model.vocabulary.generated.ScaffoldScrollBehavior)
@@ -572,7 +573,7 @@ object ScaffoldMembers : NodeMemberSet("scaffold") {
     val SnackbarContent: ChildNodeMember = ChildNodeMember("snackbar_content", required = false)
     val Rail: ChildNodeMember = ChildNodeMember("rail", required = false)
     override val required: List<NodeMember<*>> = listOf()
-    override val optional: List<NodeMember<*>> = listOf(TopBar, Body, BottomBar, Fab, FloatingToolbar, Drawer, Snackbar, SnackbarAction, OnRefresh, TopBarStyle, TopBarSubtitle, ScrollBehavior, FloatingToolbarOrientation, FloatingToolbarExpanded, FloatingToolbarPlacement, FloatingToolbarFab, FloatingToolbarScroll, FloatingToolbarExitDirection, RefreshIndicator, IsRefreshing, SnackbarDuration, SnackbarDismiss, SnackbarMaxLines, Sheet, SheetPeekHeight, SheetState, OnSheetChange, FabHideOnScroll, DrawerVariant, BottomBarBehavior, FabPosition, TopBarExpanded, TopBarCollapsedHeight, TopBarExpandedHeight, TopBarCentered, SnackbarContent, Rail)
+    override val optional: List<NodeMember<*>> = listOf(TopBar, Body, BottomBar, Fab, FloatingToolbar, Drawer, Snackbar, SnackbarAction, OnRefresh, OnBack, TopBarStyle, TopBarSubtitle, ScrollBehavior, FloatingToolbarOrientation, FloatingToolbarExpanded, FloatingToolbarPlacement, FloatingToolbarFab, FloatingToolbarScroll, FloatingToolbarExitDirection, RefreshIndicator, IsRefreshing, SnackbarDuration, SnackbarDismiss, SnackbarMaxLines, Sheet, SheetPeekHeight, SheetState, OnSheetChange, FabHideOnScroll, DrawerVariant, BottomBarBehavior, FabPosition, TopBarExpanded, TopBarCollapsedHeight, TopBarExpandedHeight, TopBarCentered, SnackbarContent, Rail)
 }
 
 /** Typed members of the `tooltip` node. */

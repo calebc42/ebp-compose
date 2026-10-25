@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package com.calebc42.ebp.renderer.compose
 
+import androidx.compose.foundation.layout.PaddingValues
+
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -34,6 +36,10 @@ data class ComposeChromeStyles(
     val drawerWidth: Dp? = null,
     /** The scrim over content behind a modal drawer; null keeps the toolkit's. */
     val drawerScrim: Color? = null,
+    /** The band a scaffold's bottom bar sits on; null keeps the toolkit's. */
+    val bottomBarContainer: Color? = null,
+    /** The band's padding around the bottom bar node; null keeps the toolkit's. */
+    val bottomBarPadding: PaddingValues? = null,
     val snackbarContainer: Color? = null,
     val snackbarContent: Color? = null,
     val snackbarShape: Shape? = null,

@@ -181,8 +181,7 @@ object CoreTextInputComponent : ComposeNodeComponent<ComposeNodeRenderContext> {
         // Keyed on the node's identity, not its value: kotlinx JsonObject
         // equality deep-walks even the same instance, and the engine hands
         // back the previous instance for an untouched node, so identity is
-        // both the cheaper and the right re-seed trigger (jetpacs-poc
-        // PLAN-responsiveness C4a).
+        // both the cheaper and the right re-seed trigger.
         var value by remember(NodeIdentity(node)) {
             mutableStateOf(properties.getOr(TextInputMembers.Value, ""))
         }

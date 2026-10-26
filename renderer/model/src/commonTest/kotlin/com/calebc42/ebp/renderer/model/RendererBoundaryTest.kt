@@ -26,8 +26,8 @@ class RendererBoundaryTest {
 
     @Test
     fun commonRendererSourcesStayPlatformNeutral() {
-        // commonMain compiles for Android and for the desktop JVM (jetpacs-poc
-        // docs/PLAN-desktop-companion.md). A platform import there is a leak
+        // commonMain compiles for Android and for a desktop JVM host. A
+        // platform import there is a leak
         // that only the second host would notice.
         val root = findRendererRoot()
         // A module that has not moved to commonMain yet is not scanned; at

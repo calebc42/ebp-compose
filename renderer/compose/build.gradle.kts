@@ -1,8 +1,8 @@
 // :renderer:compose is Kotlin Multiplatform with an Android and a JVM target
-// (jetpacs-poc docs/PLAN-desktop-d1-renderers.md). commonMain keeps Google's
+// (a desktop host links it). commonMain keeps Google's
 // Compose coordinates: Android resolves them as before, and a standalone JVM
 // target compiles against their published stubs. Only a build that hosts the
-// desktop (jetpacs-poc/companion) substitutes JetBrains' desktop builds on its
+// desktop host substitutes JetBrains' desktop builds on its
 // JVM classpaths, so Compose must not run on this module's own `jvmTest`.
 plugins {
     alias(libs.plugins.kotlin.multiplatform)

@@ -1,6 +1,5 @@
 // :renderer:model is Kotlin Multiplatform with an Android and a JVM target so
-// the Jetpacs desktop host can link it (jetpacs-poc
-// docs/PLAN-desktop-d1-renderers.md). Both targets are JVM platforms, so
+// a desktop host can link it. Both targets are JVM platforms, so
 // commonMain has no metadata compilation: it compiles once per platform, may
 // use JDK APIs, and sees the jvm-only `:wire` module exactly as the Android
 // library did.

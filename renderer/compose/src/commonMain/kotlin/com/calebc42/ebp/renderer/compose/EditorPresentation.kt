@@ -31,6 +31,8 @@ import kotlinx.serialization.json.JsonPrimitive
 data class EditorPresentation(
     val id: String,
     val document: String?,
+    /** SPEC 17.4 (#206): the placeholder shown while the text is empty. */
+    val hint: String?,
     val enabled: Boolean,
     val readOnly: Boolean,
     val singleLine: Boolean,
@@ -194,6 +196,7 @@ internal fun editorPresentationOf(node: JsonObject): EditorPresentation {
     return EditorPresentation(
         id = requireNotNull(properties[EditorMembers.Id]) { "editor without an id" },
         document = properties[EditorMembers.Document],
+        hint = properties[EditorMembers.Hint],
         enabled = properties.getOr(EditorMembers.Enabled, true),
         readOnly = properties.getOr(EditorMembers.ReadOnly, false),
         singleLine = singleLine,

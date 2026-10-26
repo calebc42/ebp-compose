@@ -31,6 +31,7 @@ class EditorPresentationTest {
     @Test
     fun localDefaultsMatchTheCanonicalEditorContract() {
         val presentation = editorPresentationOf(node("""{"t":"editor","id":"draft"}"""))
+        assertNull(presentation.hint)
 
         assertEquals("draft", presentation.id)
         assertNull(presentation.document)
@@ -47,7 +48,7 @@ class EditorPresentationTest {
     fun projectsLocalPresentationAndActionMembersWithoutInventingSemantics() {
         val presentation = editorPresentationOf(node("""
             {
-              "t":"editor","id":"command","value":"alpha","single_line":true,
+              "t":"editor","id":"command","value":"alpha","hint":"Body","single_line":true,
               "read_only":true,"enabled":false,"syntax":"elisp","line_numbers":true,
               "chromeless":true,"publish_state":true,"autofocus":true,
               "toolbar":[{"label":"Insert","snippet":"()"}],
@@ -57,6 +58,7 @@ class EditorPresentationTest {
         """))
 
         assertNull(presentation.document)
+        assertEquals("Body", presentation.hint)
         assertFalse(presentation.enabled)
         assertTrue(presentation.readOnly)
         assertTrue(presentation.singleLine)

@@ -385,6 +385,7 @@ object EditorMembers : NodeMemberSet("editor") {
     val Id: IdentifierMember = IdentifierMember("id", required = true)
     val Document: IdentifierMember = IdentifierMember("document", required = false)
     val Value: StringMember = StringMember("value", required = false)
+    val Hint: StringMember = StringMember("hint", required = false)
     val OnSave: ActionMember = ActionMember("on_save", required = false)
     val OnEnter: ActionMember = ActionMember("on_enter", required = false)
     val SingleLine: BooleanMember = BooleanMember("single_line", required = false)
@@ -400,7 +401,7 @@ object EditorMembers : NodeMemberSet("editor") {
     val Toolbar: AnyMember = AnyMember("toolbar", required = false, tag = "toolbar-id-or-item-array")
     val Enabled: BooleanMember = BooleanMember("enabled", required = false)
     override val required: List<NodeMember<*>> = listOf(Id)
-    override val optional: List<NodeMember<*>> = listOf(Document, Value, OnSave, OnEnter, SingleLine, MinLines, MaxLines, ReadOnly, Syntax, LineNumbers, Complete, Chromeless, PublishState, Autofocus, Toolbar, Enabled)
+    override val optional: List<NodeMember<*>> = listOf(Document, Value, Hint, OnSave, OnEnter, SingleLine, MinLines, MaxLines, ReadOnly, Syntax, LineNumbers, Complete, Chromeless, PublishState, Autofocus, Toolbar, Enabled)
 }
 
 /** Typed members of the `checkbox` node. */

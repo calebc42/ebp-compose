@@ -63,6 +63,21 @@ class RevealSwipeTest {
     }
 
     @Test
+    fun aShortFastFlickOpensThePopupAsRevivedsFlingDoes() {
+        assertEquals(
+            RevealSwipeDirection.Start,
+            resolveSwipePopupDirection(30f, 66f, true, true, vxPx = 900f, flingVelocityPx = 200f),
+        )
+        assertEquals(
+            RevealSwipeDirection.End,
+            resolveSwipePopupDirection(-30f, 66f, true, true, vxPx = -900f, flingVelocityPx = 200f),
+        )
+        // A slow short drag, or a flick back against the travel, does not.
+        assertEquals(null, resolveSwipePopupDirection(30f, 66f, true, true, vxPx = 100f, flingVelocityPx = 200f))
+        assertEquals(null, resolveSwipePopupDirection(30f, 66f, true, true, vxPx = -900f, flingVelocityPx = 200f))
+    }
+
+    @Test
     fun popupSitsAtTheGestureEndAboveTheTouchAndNeverAboveTheRow() {
         assertEquals(300 to 20, swipePopupOffset(endXPx = 300, startYPx = 120, fingerPx = 100))
         assertEquals(300 to 0, swipePopupOffset(endXPx = 300, startYPx = 40, fingerPx = 100))

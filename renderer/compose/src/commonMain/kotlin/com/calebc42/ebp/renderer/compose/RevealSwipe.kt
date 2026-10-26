@@ -5,8 +5,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
@@ -298,19 +300,32 @@ data class SwipePopupAnchor(val direction: RevealSwipeDirection, val x: Int, val
 
 /**
  * Resolve a completed horizontal gesture on a popup row. [dxPx] is the
- * logical travel (start positive, as [resolveRevealSwipeRelease] reads it);
- * a side the row does not author never opens.
+ * logical travel (start positive, as [resolveRevealSwipeRelease] reads it)
+ * and [vxPx] the logical release velocity in px/s. Either a drag past
+ * [openThresholdPx] or a flick faster than [flingVelocityPx] opens the side
+ * it heads toward — Android's GestureDetector, which Revived listens to,
+ * reports a fling on velocity, however short the travel. A side the row
+ * does not author never opens.
  */
 fun resolveSwipePopupDirection(
     dxPx: Float,
     openThresholdPx: Float,
     hasStart: Boolean,
     hasEnd: Boolean,
-): RevealSwipeDirection? = when {
-    dxPx >= openThresholdPx && hasStart -> RevealSwipeDirection.Start
-    dxPx <= -openThresholdPx && hasEnd -> RevealSwipeDirection.End
-    else -> null
+    vxPx: Float = 0f,
+    flingVelocityPx: Float = Float.POSITIVE_INFINITY,
+): RevealSwipeDirection? {
+    val toStart = dxPx >= openThresholdPx || (vxPx >= flingVelocityPx && dxPx > 0f)
+    val toEnd = dxPx <= -openThresholdPx || (vxPx <= -flingVelocityPx && dxPx < 0f)
+    return when {
+        toStart && hasStart -> RevealSwipeDirection.Start
+        toEnd && hasEnd -> RevealSwipeDirection.End
+        else -> null
+    }
 }
+
+/** The release speed that counts as a fling: Android's minimum fling velocity, 50dp/s, doubled. */
+private val SwipePopupFlingVelocity = 100.dp
 
 /**
  * The popup's offset inside the row: the gesture's end [endXPx] along the
@@ -340,29 +355,57 @@ fun SwipePopupRow(
     val density = LocalDensity.current
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val thresholdPx = with(density) { SwipeOpenThreshold.toPx() }
+    val flingPx = with(density) { SwipePopupFlingVelocity.toPx() }
     // 1 in = 25.4 mm = 160 dp, so one millimetre is 160/25.4 dp.
     val fingerPx = with(density) { (SwipePopupFingerClearance * 160f / 25.4f).dp.roundToPx() }
     Box(
         modifier.then(
             if (enabled && (hasStart || hasEnd)) {
                 Modifier.pointerInput(hasStart, hasEnd, isRtl) {
-                    var startX = 0f
-                    var startY = 0f
-                    var endX = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { startX = it.x; startY = it.y; endX = it.x },
-                        onHorizontalDrag = { change, _ -> endX = change.position.x },
-                        onDragEnd = {
+                    // Track from the down event, as Android's GestureDetector
+                    // does: a short flick crosses the touch slop on its last
+                    // sample or two, so a detector that starts tracking at
+                    // the slop never sees its speed.
+                    val tracker = VelocityTracker()
+                    val slop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        tracker.resetTracking()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        var last = down.position
+                        var horizontal: Boolean? = null
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            tracker.addPosition(change.uptimeMillis, change.position)
+                            last = change.position
+                            val travel = change.position - down.position
+                            if (horizontal == null &&
+                                (abs(travel.x) > slop || abs(travel.y) > slop)
+                            ) {
+                                horizontal = abs(travel.x) > abs(travel.y)
+                            }
+                            // Claim a horizontal gesture so the row's tap
+                            // and the list's scroll leave it alone.
+                            if (horizontal == true) change.consume()
+                            if (!change.pressed) break
+                        }
+                        if (horizontal == true) {
+                            val vx = tracker.calculateVelocity().x
                             val direction = resolveSwipePopupDirection(
-                                logicalRevealSwipeOffset(endX - startX, isRtl),
+                                logicalRevealSwipeOffset(last.x - down.position.x, isRtl),
                                 thresholdPx, hasStart, hasEnd,
+                                vxPx = logicalRevealSwipeOffset(vx, isRtl),
+                                flingVelocityPx = flingPx,
                             )
                             if (direction != null) {
-                                val (x, y) = swipePopupOffset(endX.toInt(), startY.toInt(), fingerPx)
+                                val (x, y) = swipePopupOffset(
+                                    last.x.toInt(), down.position.y.toInt(), fingerPx,
+                                )
                                 onOpen(SwipePopupAnchor(direction, x, y))
                             }
-                        },
-                    )
+                        }
+                    }
                 }
             } else {
                 Modifier

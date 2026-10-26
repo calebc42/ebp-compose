@@ -82,6 +82,14 @@ interface ComposeNodeRenderContext {
     fun storeValue(id: String): JsonElement?
     fun epochOf(id: String): Long
 
+    /**
+     * The value stateful node [id] holds now, for another node to display:
+     * a dialog's local edit (SPEC 18.1 keeps it off the wire) or the input
+     * store. Reads are snapshot-observable, so a reader follows each edit.
+     * Not a seed: widgets seed themselves from [storeValue].
+     */
+    fun liveValue(id: String): JsonElement? = storeValue(id)
+
     /** Render [child] through the installed dispatcher at its authored index. */
     @Composable
     fun renderChild(child: JsonObject, index: Int, modifier: Modifier = Modifier)

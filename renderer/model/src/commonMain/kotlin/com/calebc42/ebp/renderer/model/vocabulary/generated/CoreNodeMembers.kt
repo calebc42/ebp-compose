@@ -375,8 +375,9 @@ object TextInputMembers : NodeMemberSet("text_input") {
     val ContentPadding: DpMember = DpMember("content_padding", required = false)
     val Mask: StringMember = StringMember("mask", required = false)
     val Filter: EnumMember<TextInputFilter> = EnumMember("filter", required = false, domain = com.calebc42.ebp.renderer.model.vocabulary.generated.TextInputFilter)
+    val Suggestions: ArrayMember = ArrayMember("suggestions", required = false, tag = "string-array")
     override val required: List<NodeMember<*>> = listOf(Id)
-    override val optional: List<NodeMember<*>> = listOf(Value, Hint, Label, OnChange, OnSubmit, SingleLine, MinLines, MaxLines, Monospace, Syntax, Password, Keyboard, Autofocus, ClearOnSubmit, Enabled, Variant, IsError, SupportingText, Prefix, Suffix, LeadingIcon, TrailingIcon, MaxLength, Selection, HideKeyboardOnSubmit, ContentPadding, Mask, Filter)
+    override val optional: List<NodeMember<*>> = listOf(Value, Hint, Label, OnChange, OnSubmit, SingleLine, MinLines, MaxLines, Monospace, Syntax, Password, Keyboard, Autofocus, ClearOnSubmit, Enabled, Variant, IsError, SupportingText, Prefix, Suffix, LeadingIcon, TrailingIcon, MaxLength, Selection, HideKeyboardOnSubmit, ContentPadding, Mask, Filter, Suggestions)
 }
 
 /** Typed members of the `editor` node. */

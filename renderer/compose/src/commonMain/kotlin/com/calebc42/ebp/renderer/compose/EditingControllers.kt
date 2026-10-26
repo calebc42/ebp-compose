@@ -147,6 +147,35 @@ class TextInputController internal constructor(
     }
 
     /**
+     * Replace [start] until [end] with [replacement] as the user's own edit —
+     * a picked word completion (SPEC 17.4 `suggestions`) — and put the cursor
+     * after it. It is normalized like typing and published like typing; a
+     * programmatic [TextFieldState.edit] alone would bypass both. Returns
+     * whether the text changed.
+     */
+    fun applyLocalEdit(start: Int, end: Int, replacement: String): Boolean {
+        if (config.password && passwordSubmissionPending) return false
+        val current = state.text.toString()
+        if (start < 0 || end > current.length || start > end) return false
+        val proposed = current.replaceRange(start, end, replacement)
+        val normalized = normalizeTextInput(
+            proposed,
+            config.singleLine,
+            config.filter,
+            config.maxLengthScalars,
+        )
+        if (EditorSession.jcsUtf8Bytes(normalized) > maxFieldBytes) return false
+        val cursor = (start + replacement.length).coerceAtMost(normalized.length)
+        state.edit {
+            replace(0, length, normalized)
+            selection = TextRange(cursor)
+        }
+        if (normalized == current) return false
+        recordUserEdit(normalized)
+        return true
+    }
+
+    /**
      * Admit one legacy value-based Foundation transaction.
      *
      * Compose's value-based API is used only for masks because it accepts an

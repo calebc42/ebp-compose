@@ -49,6 +49,27 @@ class RevealSwipeTest {
     }
 
     @Test
+    fun popupOpensPastTheThresholdTowardAnAuthoredSide() {
+        assertEquals(
+            RevealSwipeDirection.Start,
+            resolveSwipePopupDirection(70f, 66f, hasStart = true, hasEnd = true),
+        )
+        assertEquals(
+            RevealSwipeDirection.End,
+            resolveSwipePopupDirection(-70f, 66f, hasStart = true, hasEnd = true),
+        )
+        assertEquals(null, resolveSwipePopupDirection(-70f, 66f, hasStart = true, hasEnd = false))
+        assertEquals(null, resolveSwipePopupDirection(40f, 66f, hasStart = true, hasEnd = true))
+    }
+
+    @Test
+    fun popupSitsAtTheGestureEndAboveTheTouchAndNeverAboveTheRow() {
+        assertEquals(300 to 20, swipePopupOffset(endXPx = 300, startYPx = 120, fingerPx = 100))
+        assertEquals(300 to 0, swipePopupOffset(endXPx = 300, startYPx = 40, fingerPx = 100))
+        assertEquals(0 to 0, swipePopupOffset(endXPx = -5, startYPx = 40, fingerPx = 100))
+    }
+
+    @Test
     fun physicalTravelMirrorsOntoLogicalStartInRtl() {
         assertEquals(80f, logicalRevealSwipeOffset(80f, isRtl = false))
         assertEquals(80f, logicalRevealSwipeOffset(-80f, isRtl = true))

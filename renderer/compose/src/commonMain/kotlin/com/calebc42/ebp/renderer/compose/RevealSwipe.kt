@@ -5,6 +5,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Box
@@ -282,5 +284,91 @@ fun RevealSwipeRow(
         ) {
             foreground(isOpen, ::close)
         }
+    }
+}
+
+// ------------------------------------------------------------------------
+// Amendment #207: the popup presentation. The item never displaces; a
+// horizontal gesture past the ordinary threshold opens the side's actions
+// as a floating row beside the gesture. The gesture and the placement are
+// shared here; renderers draw the popup and its buttons.
+
+/** Where a popup side opens: the gesture's end along the row, above the touch. */
+data class SwipePopupAnchor(val direction: RevealSwipeDirection, val x: Int, val y: Int)
+
+/**
+ * Resolve a completed horizontal gesture on a popup row. [dxPx] is the
+ * logical travel (start positive, as [resolveRevealSwipeRelease] reads it);
+ * a side the row does not author never opens.
+ */
+fun resolveSwipePopupDirection(
+    dxPx: Float,
+    openThresholdPx: Float,
+    hasStart: Boolean,
+    hasEnd: Boolean,
+): RevealSwipeDirection? = when {
+    dxPx >= openThresholdPx && hasStart -> RevealSwipeDirection.Start
+    dxPx <= -openThresholdPx && hasEnd -> RevealSwipeDirection.End
+    else -> null
+}
+
+/**
+ * The popup's offset inside the row: the gesture's end [endXPx] along the
+ * row and [fingerPx] above where the touch began, never above the row's
+ * top (SPEC 17.3 popup placement, Revived's NotePopup).
+ */
+fun swipePopupOffset(endXPx: Int, startYPx: Int, fingerPx: Int): Pair<Int, Int> =
+    endXPx.coerceAtLeast(0) to (startYPx - fingerPx).coerceAtLeast(0)
+
+/** Espresso's finger: 16mm, the clearance Revived keeps above the touch. */
+val SwipePopupFingerClearance = 16f // millimetres
+
+/**
+ * The popup gesture over [content]: the row stays put, and a horizontal drag
+ * past the ordinary reveal threshold toward an authored side calls [onOpen]
+ * with the direction and the popup's offset inside the row.
+ */
+@Composable
+fun SwipePopupRow(
+    hasStart: Boolean,
+    hasEnd: Boolean,
+    onOpen: (SwipePopupAnchor) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val density = LocalDensity.current
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val thresholdPx = with(density) { SwipeOpenThreshold.toPx() }
+    // 1 in = 25.4 mm = 160 dp, so one millimetre is 160/25.4 dp.
+    val fingerPx = with(density) { (SwipePopupFingerClearance * 160f / 25.4f).dp.roundToPx() }
+    Box(
+        modifier.then(
+            if (enabled && (hasStart || hasEnd)) {
+                Modifier.pointerInput(hasStart, hasEnd, isRtl) {
+                    var startX = 0f
+                    var startY = 0f
+                    var endX = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { startX = it.x; startY = it.y; endX = it.x },
+                        onHorizontalDrag = { change, _ -> endX = change.position.x },
+                        onDragEnd = {
+                            val direction = resolveSwipePopupDirection(
+                                logicalRevealSwipeOffset(endX - startX, isRtl),
+                                thresholdPx, hasStart, hasEnd,
+                            )
+                            if (direction != null) {
+                                val (x, y) = swipePopupOffset(endX.toInt(), startY.toInt(), fingerPx)
+                                onOpen(SwipePopupAnchor(direction, x, y))
+                            }
+                        },
+                    )
+                }
+            } else {
+                Modifier
+            },
+        ),
+    ) {
+        content()
     }
 }

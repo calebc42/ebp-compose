@@ -33,7 +33,7 @@ NON_NODE_ENUM_DOMAINS = frozenset({
     "dialog.style", "notification.priority", "diagnostic.severity",
     "toolbar.placement", "tab_item.icon_position", "theme.layout_direction",
     "window.size_class", "locale.hour_cycle", "colors.polarity", "visible.op",
-    "snackbar.result", "canvas.op", "swipe.presentation",
+    "snackbar.result", "canvas.op", "swipe.presentation", "uri.scheme",
 })
 
 KOTLIN_PACKAGE = "com.calebc42.ebp.renderer.model.vocabulary"

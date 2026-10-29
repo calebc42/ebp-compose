@@ -30,6 +30,8 @@ data class ComposeChromeStyles(
     val tabIndicator: Color? = null,
     val railLabel: TextStyle? = null,
     val railIndicator: Color? = null,
+    /** The navigation rail's container; null keeps the toolkit's. */
+    val railContainer: Color? = null,
     val drawerContainer: Color? = null,
     val drawerShape: Shape? = null,
     /** The drawer sheet's width; null keeps the toolkit's sizing. */
